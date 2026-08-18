@@ -112,6 +112,30 @@
   background: #ffb650;
 }
 
+.btn-emergency {
+  background: color-mix(in srgb, var(--danger) 16%, var(--panel));
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.btn-emergency:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 26%, var(--panel));
+}
+
+.btn-emergency-active {
+  background: var(--danger);
+  color: #1a0505;
+  border-color: var(--danger);
+  animation: emergency-pulse 1s ease-in-out infinite;
+}
+
+@keyframes emergency-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 0%, transparent); }
+}
+
 .control-group {
   display: flex;
   align-items: center;
@@ -304,6 +328,45 @@
 .badge-danger {
   background: color-mix(in srgb, var(--danger) 20%, transparent);
   color: var(--danger);
+}
+
+.badge-warn {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+
+/* ---------- Warning-time panel ---------- */
+.warning-panel {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+}
+
+.warning-panel-active {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+.warning-value {
+  font-size: 30px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  color: var(--text);
+}
+
+.warning-panel-active .warning-value {
+  color: var(--danger);
+}
+
+.sel-head-sub {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sub-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
 }
 
 .hint {

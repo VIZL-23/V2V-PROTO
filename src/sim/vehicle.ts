@@ -11,7 +11,7 @@
  * Units: METRES, SECONDS, RADIANS.
  */
 
-import { MSG } from './config';
+import { MSG, RISK } from './config';
 import type { V2VMessage } from './message';
 import {
   processInbox,
@@ -20,6 +20,7 @@ import {
   type SeenSet,
   type WorldModel,
 } from '../protocol/protocol';
+import { assessRisk, type RiskLevel } from '../risk/risk';
 
 export type VehicleStatus = 'NORMAL' | 'WARNING' | 'EMERGENCY';
 
@@ -63,6 +64,20 @@ export class Vehicle {
   /** When true, the user is dragging this car: skip physics integration. */
   held = false;
 
+  // --- Risk state (Phase 4), computed from the world model each tick ---------
+  riskLevel: RiskLevel = 'SAFE';
+  ttc: number | null = null; // seconds to worst threat ahead
+  threatId: string | null = null;
+  gap: number | null = null; // metres to that threat
+  dSafe = 0; // RSS-lite safe distance
+  insideSafe = false;
+
+  /** Speed this vehicle wants to hold when the road ahead is clear. */
+  desiredVel: number;
+
+  /** Set by the 🚨 emergency trigger: this car brakes hard and broadcasts it. */
+  manualBrake = false;
+
   constructor(init: VehicleInit) {
     this.id = init.id;
     this.x = init.x;
@@ -70,6 +85,7 @@ export class Vehicle {
     this.vel = init.vel;
     this.accel = init.accel;
     this.heading = init.heading;
+    this.desiredVel = init.vel;
   }
 
   /** Build a CAM (cooperative awareness) beacon describing this vehicle now. */
@@ -77,7 +93,10 @@ export class Vehicle {
     const msg: V2VMessage = {
       senderId: this.id,
       seq: this.seq++,
-      type: 'CAM',
+      // A hard-braking vehicle flags its telemetry as an emergency so the log
+      // and visuals can single it out. Followers react to the kinematics either
+      // way, but the type marks the origin of the cascade.
+      type: this.manualBrake ? 'EMERGENCY_BRAKING' : 'CAM',
       sentAt: nowMs,
       ttl: MSG.DEFAULT_TTL,
       pos: { x: this.x, y: this.y },
@@ -99,6 +118,51 @@ export class Vehicle {
     this.inbox.length = 0;
     pruneProtocol(this.seen, this.worldModel, nowMs);
     return result;
+  }
+
+  /**
+   * Assess collision risk over the local world model and set this vehicle's
+   * own control (acceleration) accordingly. This is the decentralized safety
+   * loop: input is only self + world model; output is only this car's braking.
+   */
+  updateRiskAndControl(): void {
+    const a = assessRisk(
+      { x: this.x, y: this.y, vel: this.vel, heading: this.heading },
+      this.worldModel.values()
+    );
+    this.riskLevel = a.level;
+    this.ttc = a.ttc;
+    this.threatId = a.threatId;
+    this.gap = a.gap;
+    this.dSafe = a.dSafe;
+    this.insideSafe = a.insideSafe;
+
+    // The emergency initiator brakes hard regardless of what's ahead.
+    if (this.manualBrake) {
+      this.accel = -RISK.A_BRAKE_MPS2;
+      this.status = 'EMERGENCY';
+      return;
+    }
+
+    switch (a.level) {
+      case 'DANGER':
+        this.accel = -RISK.A_BRAKE_MPS2;
+        this.status = 'EMERGENCY';
+        break;
+      case 'WARNING':
+        this.accel = -RISK.A_BRAKE_MPS2 * RISK.WARNING_EASE_FACTOR;
+        this.status = 'WARNING';
+        break;
+      default: {
+        // SAFE: resume gently toward desired cruise speed.
+        this.status = 'NORMAL';
+        const dv = this.desiredVel - this.vel;
+        if (dv > 0.1) this.accel = Math.min(RISK.RESUME_ACCEL_MPS2, dv);
+        else if (dv < -0.1) this.accel = Math.max(-RISK.RESUME_ACCEL_MPS2, dv);
+        else this.accel = 0;
+        break;
+      }
+    }
   }
 
   /**

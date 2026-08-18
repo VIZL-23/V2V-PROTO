@@ -49,6 +49,17 @@ export class World {
   readonly metrics = new Metrics();
   readonly channel: Channel;
 
+  // --- Emergency scenario state (Phase 4) ------------------------------------
+  /** The vehicle currently hard-braking on manual trigger, if any. */
+  emergencyBrakerId: string | null = null;
+  /** Sim clock when the emergency braking started. */
+  emergencyStartMs: number | null = null;
+  /**
+   * Headline metric: sim-clock ms from the braker decelerating to the FIRST
+   * other vehicle computing DANGER. Null until that happens.
+   */
+  warningTimeMs: number | null = null;
+
   private readonly seed: number;
   private readonly vehicleCount: number;
   private rng: Rng;
@@ -82,8 +93,43 @@ export class World {
     this.rng = new Rng(this.seed);
     this.metrics.reset();
     this.channel.reset();
+    this.emergencyBrakerId = null;
+    this.emergencyStartMs = null;
+    this.warningTimeMs = null;
     this.vehicles = [];
     this.spawn();
+  }
+
+  /**
+   * Fire the hero scenario: make one vehicle brake hard and broadcast it.
+   * Defaults to the front-most car (the one with cars behind it to react).
+   * Starts the warning-time clock.
+   */
+  triggerEmergency(vehicleId?: string): void {
+    const target = vehicleId
+      ? this.findVehicle(vehicleId)
+      : this.vehicles.reduce<Vehicle | undefined>(
+          (front, v) => (!front || v.x > front.x ? v : front),
+          undefined
+        );
+    if (!target) return;
+
+    this.clearEmergency();
+    target.manualBrake = true;
+    this.emergencyBrakerId = target.id;
+    this.emergencyStartMs = this.simClockMs;
+    this.warningTimeMs = null;
+  }
+
+  /** Cancel the emergency: the braker resumes normal driving. */
+  clearEmergency(): void {
+    if (this.emergencyBrakerId) {
+      const v = this.findVehicle(this.emergencyBrakerId);
+      if (v) v.manualBrake = false;
+    }
+    this.emergencyBrakerId = null;
+    this.emergencyStartMs = null;
+    this.warningTimeMs = null;
   }
 
   /** Advance sim by exactly one fixed step. */
@@ -139,8 +185,30 @@ export class World {
     }
     this.metrics.recordProtocol(now, dupCount, fwdCount, maxHops);
 
-    // 5. Age out old metric samples so the panel reads "live".
+    // 5. Risk engine + control — each vehicle assesses its OWN world model and
+    //    sets its OWN braking. Safety decisions never leave the vehicle.
+    for (const v of this.vehicles) {
+      v.updateRiskAndControl();
+    }
+    this.updateWarningTime(now);
+
+    // 6. Age out old metric samples so the panel reads "live".
     this.metrics.prune(now);
+  }
+
+  /**
+   * Latch the warning time the first moment any non-braker reaches DANGER
+   * after an emergency began.
+   */
+  private updateWarningTime(now: number): void {
+    if (this.emergencyStartMs === null || this.warningTimeMs !== null) return;
+    for (const v of this.vehicles) {
+      if (v.id === this.emergencyBrakerId) continue;
+      if (v.riskLevel === 'DANGER') {
+        this.warningTimeMs = now - this.emergencyStartMs;
+        return;
+      }
+    }
   }
 
   /**

@@ -69,6 +69,11 @@ export function drawFrame(
     drawChannelOverlay(ctx, world, selected, originX, originY);
   }
 
+  // Emergency propagation pulse (drawn under the cars).
+  if (world.emergencyBrakerId && world.emergencyStartMs !== null) {
+    drawEmergencyPulse(ctx, world, originX, originY);
+  }
+
   // Vehicles.
   for (const v of world.vehicles) {
     drawVehicle(ctx, v, originX, originY, v === selected);
@@ -76,6 +81,40 @@ export function drawFrame(
 
   // HUD text.
   drawHud(ctx, world, canvasWidth, canvasHeight);
+}
+
+/**
+ * Expanding "sonar" ring from the emergency braker — a visual for the warning
+ * spreading outward from where the braking started. Purely decorative; the
+ * real propagation is the red/amber wave in the cars themselves.
+ */
+function drawEmergencyPulse(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  originX: number,
+  originY: number
+): void {
+  const braker = world.findVehicle(world.emergencyBrakerId!);
+  if (!braker || world.emergencyStartMs === null) return;
+
+  const cx = originX + m2px(braker.x);
+  const cy = originY + m2px(braker.y);
+  const elapsed = world.simClockMs - world.emergencyStartMs;
+  const period = 1000; // ms per pulse
+  const maxR = m2px(140);
+
+  ctx.save();
+  for (let k = 0; k < 2; k++) {
+    const phase = (((elapsed - k * (period / 2)) % period) + period) % period / period;
+    const r = phase * maxR;
+    ctx.globalAlpha = (1 - phase) * 0.35;
+    ctx.strokeStyle = COLORS.vehicleEmergency;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /**
@@ -239,6 +278,14 @@ function drawVehicle(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText(v.id, cx, cy - h / 2 - 4);
+
+  // TTC readout below at-risk cars — the risk engine made visible.
+  if (v.status !== 'NORMAL' && v.ttc !== null && Number.isFinite(v.ttc)) {
+    ctx.fillStyle = v.status === 'EMERGENCY' ? COLORS.vehicleEmergency : COLORS.vehicleWarning;
+    ctx.font = 'bold 9px system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`TTC ${v.ttc.toFixed(1)}s`, cx, cy + h / 2 + 3);
+  }
 }
 
 function drawHud(

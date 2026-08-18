@@ -39,12 +39,42 @@ export const VEHICLE = {
   /** Vehicle width in metres. */
   WIDTH_M: 1.9,
 
-  /** Default cruise speed range (m/s). ~50-72 km/h. */
-  CRUISE_MIN_MPS: 14,
-  CRUISE_MAX_MPS: 20,
+  /**
+   * Default cruise speed range (m/s). ~54-65 km/h. A narrow band on purpose:
+   * with the Phase 4 risk engine live, wide speed spreads would make cars brake
+   * and jostle from the start; we want a calm all-green baseline that the
+   * emergency then disrupts.
+   */
+  CRUISE_MIN_MPS: 15,
+  CRUISE_MAX_MPS: 18,
 
   /** Spawn count for phase 1. */
   DEFAULT_COUNT: 12,
+};
+
+/**
+ * Risk engine (Phase 4, workflow doc §7). Runs INSIDE each vehicle over its own
+ * local world model — never the global array. Thresholds live here (not as
+ * literals in code) so they can be tuned live during a demo.
+ */
+export const RISK = {
+  /** TTC above this is SAFE (seconds). */
+  TTC_WARN_S: 5,
+
+  /** TTC below this is DANGER → brake (seconds). Between the two = WARNING. */
+  TTC_DANGER_S: 3,
+
+  /** RSS-lite reaction time (seconds). */
+  T_REACT_S: 1.5,
+
+  /** RSS-lite comfortable braking deceleration (m/s²). Also the brake strength. */
+  A_BRAKE_MPS2: 6,
+
+  /** WARNING eases off at this fraction of full braking. */
+  WARNING_EASE_FACTOR: 0.4,
+
+  /** Gentle acceleration back toward desired cruise when SAFE (m/s²). */
+  RESUME_ACCEL_MPS2: 1.5,
 };
 
 /**

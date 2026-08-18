@@ -9,8 +9,11 @@ interface ControlsProps {
   running: boolean;
   vehicleCount: number;
   seed: number;
+  emergencyActive: boolean;
+  selectedId: string | null;
   onToggleRun: () => void;
   onReset: () => void;
+  onTriggerEmergency: () => void;
   onVehicleCountChange: (n: number) => void;
   onSeedChange: (s: number) => void;
 }
@@ -20,8 +23,11 @@ export function Controls(props: ControlsProps) {
     running,
     vehicleCount,
     seed,
+    emergencyActive,
+    selectedId,
     onToggleRun,
     onReset,
+    onTriggerEmergency,
     onVehicleCountChange,
     onSeedChange,
   } = props;
@@ -37,6 +43,16 @@ export function Controls(props: ControlsProps) {
 
       <button className="btn" onClick={onReset}>
         ⟲  Reset
+      </button>
+
+      <button
+        className={`btn btn-emergency ${emergencyActive ? 'btn-emergency-active' : ''}`}
+        onClick={onTriggerEmergency}
+        title={selectedId ? `Trigger on ${selectedId}` : 'Trigger on the front car'}
+      >
+        {emergencyActive
+          ? '✖  Clear Emergency'
+          : `🚨  Trigger Emergency${selectedId ? ` (${selectedId})` : ''}`}
       </button>
 
       <div className="control-group">

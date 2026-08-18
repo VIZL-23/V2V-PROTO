@@ -12,6 +12,7 @@
 
 import { CHANNEL } from '../sim/config';
 import type { LinkSnapshot, MetricsSnapshot } from '../sim/metrics';
+import type { RiskLevel } from '../risk/risk';
 
 interface KnownPeer {
   id: string;
@@ -24,6 +25,18 @@ interface SelectedInfo {
   link: LinkSnapshot;
   /** The selected vehicle's local world model — who it has heard, and how. */
   known: KnownPeer[];
+  // Risk (Phase 4)
+  riskLevel: RiskLevel;
+  ttc: number | null;
+  gap: number | null;
+  dSafe: number;
+  insideSafe: boolean;
+}
+
+interface ScenarioInfo {
+  emergencyActive: boolean;
+  brakerId: string | null;
+  warningTimeMs: number | null;
 }
 
 interface MetricsPanelProps {
@@ -31,16 +44,36 @@ interface MetricsPanelProps {
   channelRange: number;
   onRangeChange: (m: number) => void;
   selected: SelectedInfo | null;
+  scenario: ScenarioInfo;
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const ms = (x: number) => `${x.toFixed(1)} ms`;
 
+const NO_SCENARIO: ScenarioInfo = { emergencyActive: false, brakerId: null, warningTimeMs: null };
+
 export function MetricsPanel(props: MetricsPanelProps) {
   const { metrics, channelRange, onRangeChange, selected } = props;
+  const scenario = props.scenario ?? NO_SCENARIO;
 
   return (
     <aside className="sidebar">
+      <section className={`panel warning-panel${scenario.emergencyActive ? ' warning-panel-active' : ''}`}>
+        <h2 className="panel-title">Warning time</h2>
+        <div className="warning-value">
+          {scenario.warningTimeMs !== null
+            ? `${scenario.warningTimeMs.toFixed(0)} ms`
+            : scenario.emergencyActive
+            ? 'measuring…'
+            : '—'}
+        </div>
+        <div className="metric-sub">
+          {scenario.emergencyActive
+            ? `${scenario.brakerId} braking → first DANGER downstream`
+            : 'braker decelerates → first follower reaches DANGER'}
+        </div>
+      </section>
+
       <section className="panel">
         <h2 className="panel-title">System status</h2>
 
@@ -111,6 +144,29 @@ export function MetricsPanel(props: MetricsPanelProps) {
           <>
             <div className="sel-head">
               <span className="sel-id">{selected.id}</span>
+              <span className={`badge ${riskBadge(selected.riskLevel)}`}>{selected.riskLevel}</span>
+            </div>
+
+            <div className="metric-grid">
+              <Metric
+                label="TTC"
+                value={selected.ttc !== null ? `${selected.ttc.toFixed(2)} s` : '∞'}
+                tone={riskTone(selected.riskLevel)}
+              />
+              <Metric
+                label="Safe dist (RSS)"
+                value={`${selected.dSafe.toFixed(0)} m`}
+                tone={selected.insideSafe ? 'tone-warn' : 'tone-ok'}
+              />
+            </div>
+            <div className="metric-sub">
+              {selected.gap !== null
+                ? `gap to threat ${selected.gap.toFixed(0)} m · ${selected.insideSafe ? 'INSIDE safe distance' : 'outside safe distance'}`
+                : 'no closing threat ahead'}
+            </div>
+
+            <div className="sel-head sel-head-sub">
+              <span className="sub-label">Link</span>
               {selected.inRange === 0 ? (
                 <span className="badge badge-danger">OUT OF RANGE</span>
               ) : (
@@ -182,4 +238,12 @@ function lossTone(loss: number | undefined): string {
   if (loss <= 0.1) return 'tone-ok';
   if (loss <= 0.3) return 'tone-warn';
   return 'tone-danger';
+}
+
+function riskTone(level: RiskLevel): string {
+  return level === 'DANGER' ? 'tone-danger' : level === 'WARNING' ? 'tone-warn' : 'tone-ok';
+}
+
+function riskBadge(level: RiskLevel): string {
+  return level === 'DANGER' ? 'badge-danger' : level === 'WARNING' ? 'badge-warn' : 'badge-ok';
 }

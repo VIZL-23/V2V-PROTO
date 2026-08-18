@@ -32,8 +32,14 @@ interface PanelState {
         inRange: number;
         link: ReturnType<World['metrics']['snapshotFor']>;
         known: { id: string; hops: number }[];
+        riskLevel: import('./risk/risk').RiskLevel;
+        ttc: number | null;
+        gap: number | null;
+        dSafe: number;
+        insideSafe: boolean;
       }
     | null;
+  scenario: { emergencyActive: boolean; brakerId: string | null; warningTimeMs: number | null };
 }
 
 /** Grab radius (metres) for click-to-select. */
@@ -124,9 +130,22 @@ export function App() {
             inRange: world.inRangeCount(selVehicle.id),
             link: world.metrics.snapshotFor(selVehicle.id),
             known: [...selVehicle.worldModel.values()].map((k) => ({ id: k.id, hops: k.hops })),
+            riskLevel: selVehicle.riskLevel,
+            ttc: selVehicle.ttc,
+            gap: selVehicle.gap,
+            dSafe: selVehicle.dSafe,
+            insideSafe: selVehicle.insideSafe,
           }
         : null;
-      setPanel({ metrics: world.metrics.snapshot(), selected });
+      setPanel({
+        metrics: world.metrics.snapshot(),
+        selected,
+        scenario: {
+          emergencyActive: world.emergencyBrakerId !== null,
+          brakerId: world.emergencyBrakerId,
+          warningTimeMs: world.warningTimeMs,
+        },
+      });
     }, 100);
     return () => window.clearInterval(id);
   }, []);
@@ -207,6 +226,17 @@ export function App() {
     if (wasRunning) start();
   }, [pause, start, drawOnce]);
 
+  const toggleEmergency = useCallback(() => {
+    const world = worldRef.current;
+    if (!world) return;
+    if (world.emergencyBrakerId !== null) {
+      world.clearEmergency();
+    } else {
+      world.triggerEmergency(selectedIdRef.current ?? undefined);
+    }
+    if (!runningRef.current) drawOnce();
+  }, [drawOnce]);
+
   // --- Canvas pointer: click-to-select + drag a car -------------------------
   /** Convert a pointer event to world metres, matching the renderer's origin. */
   const eventToWorld = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -278,7 +308,7 @@ export function App() {
         <div className="brand">
           <span className="brand-dot" />
           <span className="brand-title">V2V-SIH</span>
-          <span className="brand-sub">Phase 3 · Protocol &amp; Decentralization</span>
+          <span className="brand-sub">Phase 4 · Risk &amp; Hero Scenario</span>
         </div>
         <div className="status">
           <span className={`status-dot ${running ? 'status-run' : 'status-pause'}`} />
@@ -290,8 +320,11 @@ export function App() {
         running={running}
         vehicleCount={vehicleCount}
         seed={seed}
+        emergencyActive={panel?.scenario.emergencyActive ?? false}
+        selectedId={selectedId}
         onToggleRun={toggleRun}
         onReset={reset}
+        onTriggerEmergency={toggleEmergency}
         onVehicleCountChange={setVehicleCount}
         onSeedChange={setSeed}
       />
@@ -312,12 +345,13 @@ export function App() {
           channelRange={channelRange}
           onRangeChange={setChannelRange}
           selected={panel?.selected ?? null}
+          scenario={panel?.scenario ?? { emergencyActive: false, brakerId: null, warningTimeMs: null }}
         />
       </div>
 
       <footer className="app-footer">
-        Per-vehicle inbox · dedupe by (senderId, seq) · TTL multi-hop relay ·
-        Select a car to see its local world model — amber links reach cars beyond its own range.
+        Risk (TTC + RSS-lite) computed inside each vehicle · 🚨 trigger to watch
+        brake → broadcast → DANGER → propagate · warning time is the headline number.
       </footer>
     </div>
   );
