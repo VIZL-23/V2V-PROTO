@@ -1,1 +1,41 @@
-# V2V-SIH
+# V2V-SIH — Decentralized V2V + Edge Intelligence
+
+Prototype for the SIH Makeathon: a Vehicle-to-Vehicle communication
+platform demonstrating decentralized safety messaging, local collision
+detection at the vehicle, and edge intelligence — without a cloud in
+the safety-critical loop.
+
+## Status
+
+- **Phase 1 — Road & Motion** ✅ current
+  Fixed-timestep vehicle physics on a canvas road with start/pause/reset
+  and a seeded PRNG for reproducible runs. See `PHASE1.md`.
+
+Upcoming phases (dependency order):
+
+- **Phase 2 — Channel & metrics.** Explicit V2V channel with range,
+  delay, jitter, and distance-dependent loss; live latency (p50/p95)
+  and PRR meters.
+- **Phase 3 — Protocol & decentralization.** Per-vehicle inbox, message
+  schema, TTL, sequence numbers, duplicate detection, multi-hop
+  propagation.
+- **Phase 4 — Risk & the hero scenario.** TTC + RSS-lite risk engine,
+  `🚨 Trigger Emergency` button, propagation animation, colour-coded
+  risk states.
+- **Phase 5 — Edge node & cloud toggle.** RSU on the road doing traffic
+  aggregation, plus an Edge/Cloud switch that runs the same seed with
+  a simulated cloud round-trip so the warning-time gap is visible.
+
+## Getting started
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:5173.
+
+## Stack
+
+React + TypeScript + Canvas via Vite. No backend. See `PHASE1.md`
+for architectural rules that carry through all later phases.
