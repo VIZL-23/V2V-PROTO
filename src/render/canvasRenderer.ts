@@ -22,7 +22,8 @@ const COLORS = {
   vehicleLabel: '#e6ecf8',
   hudLabel: '#8ea1c9',
   rangeRing: '#29b6d8',
-  linkInRange: '#29d391',
+  linkDirect: '#29d391', // heard directly (0 hops)
+  linkRelayed: '#ffb020', // heard via relay (multi-hop)
   selectHalo: '#ffffff',
 } as const;
 
@@ -78,9 +79,11 @@ export function drawFrame(
 }
 
 /**
- * Range ring around the selected vehicle plus a link line to every other
- * vehicle currently within channel range — a live picture of who it can talk
- * to. Pull the car past the ring and the links vanish.
+ * Range ring around the selected vehicle plus a link to every car in its LOCAL
+ * WORLD MODEL — what it has actually heard, coloured by how it heard it:
+ * green = directly, amber = via a relay. Amber links reaching cars OUTSIDE the
+ * range ring are the visible proof of multi-hop propagation: the vehicle knows
+ * about traffic it can't reach on its own.
  */
 function drawChannelOverlay(
   ctx: CanvasRenderingContext2D,
@@ -93,8 +96,9 @@ function drawChannelOverlay(
   const cy = originY + m2px(sel.y);
   const rangePx = m2px(world.channel.cfg.rangeM);
 
-  // Range ring.
   ctx.save();
+
+  // Range ring + faint disc.
   ctx.strokeStyle = COLORS.rangeRing;
   ctx.globalAlpha = 0.35;
   ctx.lineWidth = 1.5;
@@ -103,24 +107,29 @@ function drawChannelOverlay(
   ctx.arc(cx, cy, rangePx, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
-
-  // Filled range disc, very faint.
   ctx.globalAlpha = 0.06;
   ctx.fillStyle = COLORS.rangeRing;
   ctx.fill();
 
-  // Links to in-range neighbours.
-  const r = world.channel.cfg.rangeM;
-  ctx.globalAlpha = 0.5;
-  ctx.strokeStyle = COLORS.linkInRange;
-  ctx.lineWidth = 1;
-  for (const v of world.vehicles) {
-    if (v === sel) continue;
-    if (Math.hypot(v.x - sel.x, v.y - sel.y) > r) continue;
+  // Links to everything in the world model, drawn to the position THIS vehicle
+  // believes each car is at (i.e. the last message it heard).
+  ctx.lineWidth = 1.25;
+  for (const known of sel.worldModel.values()) {
+    const direct = known.hops === 0;
+    ctx.strokeStyle = direct ? COLORS.linkDirect : COLORS.linkRelayed;
+    ctx.globalAlpha = direct ? 0.5 : 0.75;
+    const kx = originX + m2px(known.pos.x);
+    const ky = originY + m2px(known.pos.y);
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.lineTo(originX + m2px(v.x), originY + m2px(v.y));
+    ctx.lineTo(kx, ky);
     ctx.stroke();
+    // Small ring on relayed peers so multi-hop knowledge is obvious.
+    if (!direct) {
+      ctx.beginPath();
+      ctx.arc(kx, ky, 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }

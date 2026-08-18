@@ -13,6 +13,13 @@
 
 import { MSG } from './config';
 import type { V2VMessage } from './message';
+import {
+  processInbox,
+  pruneProtocol,
+  type ProcessResult,
+  type SeenSet,
+  type WorldModel,
+} from '../protocol/protocol';
 
 export type VehicleStatus = 'NORMAL' | 'WARNING' | 'EMERGENCY';
 
@@ -37,6 +44,16 @@ export class Vehicle {
   /** Messages delivered by the Channel. The vehicle's only window on the world. */
   inbox: V2VMessage[] = [];
 
+  /** Dedupe memory: (senderId:seq) → sim clock last seen. Pruned by age. */
+  readonly seen: SeenSet = new Map();
+
+  /**
+   * Local world model — what THIS vehicle believes about others, built only
+   * from received messages. It never reads the global vehicle array. This map
+   * is the concrete form of "decentralized".
+   */
+  readonly worldModel: WorldModel = new Map();
+
   /** Per-sender sequence counter → dedupe key with id (see message.ts). */
   private seq = 0;
 
@@ -57,7 +74,7 @@ export class Vehicle {
 
   /** Build a CAM (cooperative awareness) beacon describing this vehicle now. */
   makeCam(nowMs: number): V2VMessage {
-    return {
+    const msg: V2VMessage = {
       senderId: this.id,
       seq: this.seq++,
       type: 'CAM',
@@ -68,6 +85,20 @@ export class Vehicle {
       accel: this.accel,
       heading: this.heading,
     };
+    // Remember our own message so relays of it don't come back and re-forward.
+    this.seen.set(`${msg.senderId}:${msg.seq}`, nowMs);
+    return msg;
+  }
+
+  /**
+   * Process everything delivered since last tick: dedupe, learn, and produce
+   * relay messages. Clears the inbox and ages out stale protocol state.
+   */
+  process(nowMs: number): ProcessResult {
+    const result = processInbox(this.id, this.inbox, this.seen, this.worldModel, nowMs);
+    this.inbox.length = 0;
+    pruneProtocol(this.seen, this.worldModel, nowMs);
+    return result;
   }
 
   /**

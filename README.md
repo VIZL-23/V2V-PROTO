@@ -10,15 +10,16 @@ the safety-critical loop.
 - **Phase 1 — Road & Motion** ✅
   Fixed-timestep vehicle physics on a canvas road with start/pause/reset
   and a seeded PRNG for reproducible runs. See `PHASE1.md`.
-- **Phase 2 — Channel & metrics** ✅ current
+- **Phase 2 — Channel & metrics** ✅
   Explicit V2V channel with range, delay, jitter, and distance-dependent
   loss; live latency (p50/p95) and PRR meters; drag a car out of range to
   watch its link degrade. See `PHASE2.md`.
+- **Phase 3 — Protocol & decentralization** ✅ current
+  Per-vehicle inbox + local world model, dedupe by (senderId, seq), TTL
+  multi-hop relay, and duplicate rejection. Select a car to see its own
+  world model — green links direct, amber links relayed. See `PHASE3.md`.
 
 Upcoming phases (dependency order):
-- **Phase 3 — Protocol & decentralization.** Per-vehicle inbox, message
-  schema, TTL, sequence numbers, duplicate detection, multi-hop
-  propagation.
 - **Phase 4 — Risk & the hero scenario.** TTC + RSS-lite risk engine,
   `🚨 Trigger Emergency` button, propagation animation, colour-coded
   risk states.

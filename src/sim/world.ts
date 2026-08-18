@@ -118,11 +118,26 @@ export class World {
     // 3. Deliver any messages whose (delayed) arrival time has come.
     this.channel.deliverDue(now);
 
-    // 4. Phase 2 consumes nothing yet — drain inboxes so they don't grow.
-    //    Phase 3 replaces this with dedupe → world-model → risk → re-broadcast.
+    // 4. Protocol: each vehicle processes its OWN inbox — dedupe, update its
+    //    local world model, and emit relay copies (multi-hop). A vehicle never
+    //    reads the global array here; it only sees what it received.
+    let dupCount = 0;
+    let fwdCount = 0;
+    let maxHops = 0;
+    const relays: { from: Vehicle; msg: ReturnType<Vehicle['makeCam']> }[] = [];
     for (const v of this.vehicles) {
-      if (v.inbox.length > 0) v.inbox.length = 0;
+      const r = v.process(now);
+      dupCount += r.duplicates;
+      fwdCount += r.forwards.length;
+      if (r.maxHops > maxHops) maxHops = r.maxHops;
+      for (const m of r.forwards) relays.push({ from: v, msg: m });
     }
+    // Re-broadcast relays AFTER all inboxes are processed, so a forwarded copy
+    // is delivered on a later tick — each hop genuinely costs channel time.
+    for (const { from, msg } of relays) {
+      this.channel.broadcast(from, msg, this.vehicles, now);
+    }
+    this.metrics.recordProtocol(now, dupCount, fwdCount, maxHops);
 
     // 5. Age out old metric samples so the panel reads "live".
     this.metrics.prune(now);

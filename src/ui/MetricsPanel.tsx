@@ -13,10 +13,17 @@
 import { CHANNEL } from '../sim/config';
 import type { LinkSnapshot, MetricsSnapshot } from '../sim/metrics';
 
+interface KnownPeer {
+  id: string;
+  hops: number;
+}
+
 interface SelectedInfo {
   id: string;
   inRange: number;
   link: LinkSnapshot;
+  /** The selected vehicle's local world model — who it has heard, and how. */
+  known: KnownPeer[];
 }
 
 interface MetricsPanelProps {
@@ -48,6 +55,28 @@ export function MetricsPanel(props: MetricsPanelProps) {
           {metrics
             ? `${metrics.delivered}/${metrics.attempts} delivered · ${metrics.deliveredPerSec.toFixed(0)} msg/s · ${(metrics.windowMs / 1000).toFixed(0)}s window`
             : 'waiting for traffic…'}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2 className="panel-title">Protocol · decentralized</h2>
+        <div className="metric-grid">
+          <Metric label="Relays /s" value={metrics ? metrics.forwardedPerSec.toFixed(0) : '—'} />
+          <Metric label="Max hops" value={metrics ? String(metrics.maxHops) : '—'} accent />
+          <Metric
+            label="Dupes rejected /s"
+            value={metrics ? metrics.duplicatesPerSec.toFixed(0) : '—'}
+            tone="tone-ok"
+          />
+          <Metric
+            label="Dedupe"
+            value={metrics && metrics.duplicatesPerSec > 0 ? 'ACTIVE' : '—'}
+            tone="tone-ok"
+          />
+        </div>
+        <div className="metric-sub">
+          Every relay keeps the origin's (senderId, seq); duplicates are dropped so
+          multi-hop can't loop.
         </div>
       </section>
 
@@ -97,11 +126,34 @@ export function MetricsPanel(props: MetricsPanelProps) {
                 ? 'no beacons reaching this vehicle'
                 : `${selected.link.delivered}/${selected.link.attempts} beacons received`}
             </div>
+
+            <div className="model-head">
+              Knows {selected.known.length} vehicle{selected.known.length === 1 ? '' : 's'}
+              <span className="model-legend">
+                <i className="dot dot-direct" /> direct
+                <i className="dot dot-relayed" /> relayed
+              </span>
+            </div>
+            <div className="chip-row">
+              {selected.known.length === 0 ? (
+                <span className="hint">world model empty</span>
+              ) : (
+                [...selected.known]
+                  .sort((a, b) => a.hops - b.hops || a.id.localeCompare(b.id))
+                  .map((k) => (
+                    <span key={k.id} className={`chip ${k.hops === 0 ? 'chip-direct' : 'chip-relayed'}`}>
+                      {k.id}
+                      {k.hops > 0 && <span className="chip-hops">{k.hops}h</span>}
+                    </span>
+                  ))
+              )}
+            </div>
           </>
         ) : (
           <p className="hint">
-            Click a car to select it, then drag it toward the edge of the range
-            ring — watch its link PRR fall as loss climbs, then drop out of range.
+            Click a car to select it. Green links are cars it hears directly;
+            amber links reach cars beyond its range via multi-hop relay. Drag it
+            toward the ring edge to watch its link PRR fall as loss climbs.
           </p>
         )}
       </section>

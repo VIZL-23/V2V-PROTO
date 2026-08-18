@@ -27,7 +27,12 @@ import './App.css';
 interface PanelState {
   metrics: MetricsSnapshot;
   selected:
-    | { id: string; inRange: number; link: ReturnType<World['metrics']['snapshotFor']> }
+    | {
+        id: string;
+        inRange: number;
+        link: ReturnType<World['metrics']['snapshotFor']>;
+        known: { id: string; hops: number }[];
+      }
     | null;
 }
 
@@ -112,10 +117,15 @@ export function App() {
       const world = worldRef.current;
       if (!world) return;
       const selId = selectedIdRef.current;
-      const selected =
-        selId && world.findVehicle(selId)
-          ? { id: selId, inRange: world.inRangeCount(selId), link: world.metrics.snapshotFor(selId) }
-          : null;
+      const selVehicle = selId ? world.findVehicle(selId) : undefined;
+      const selected = selVehicle
+        ? {
+            id: selVehicle.id,
+            inRange: world.inRangeCount(selVehicle.id),
+            link: world.metrics.snapshotFor(selVehicle.id),
+            known: [...selVehicle.worldModel.values()].map((k) => ({ id: k.id, hops: k.hops })),
+          }
+        : null;
       setPanel({ metrics: world.metrics.snapshot(), selected });
     }, 100);
     return () => window.clearInterval(id);
@@ -268,7 +278,7 @@ export function App() {
         <div className="brand">
           <span className="brand-dot" />
           <span className="brand-title">V2V-SIH</span>
-          <span className="brand-sub">Phase 2 · Channel &amp; Metrics</span>
+          <span className="brand-sub">Phase 3 · Protocol &amp; Decentralization</span>
         </div>
         <div className="status">
           <span className={`status-dot ${running ? 'status-run' : 'status-pause'}`} />
@@ -306,8 +316,8 @@ export function App() {
       </div>
 
       <footer className="app-footer">
-        Explicit channel · range {channelRange}m · delay+jitter+distance-loss ·
-        Metrics are measured, not typed · Drag a car past the ring to drop its link.
+        Per-vehicle inbox · dedupe by (senderId, seq) · TTL multi-hop relay ·
+        Select a car to see its local world model — amber links reach cars beyond its own range.
       </footer>
     </div>
   );

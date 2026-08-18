@@ -79,11 +79,31 @@ export const CHANNEL = {
 };
 
 export const MSG = {
-  /** CAM (cooperative awareness) beacon cadence per vehicle, in ms. 10 Hz. */
-  BEACON_INTERVAL_MS: 100,
+  /**
+   * CAM (cooperative awareness) beacon cadence per vehicle, in ms.
+   * 4 Hz. Lower than a raw beacon rate on purpose: in Phase 3 every beacon is
+   * relayed multi-hop, and the seen-set keeps that from becoming a broadcast
+   * storm — but a slower cadence keeps total channel traffic comfortable.
+   */
+  BEACON_INTERVAL_MS: 250,
 
-  /** Default TTL (hops) stamped on a message. Multi-hop lands in Phase 3. */
+  /** Default TTL (hops remaining) stamped on a new message. */
   DEFAULT_TTL: 3,
+};
+
+/**
+ * Protocol layer (Phase 3) — dedupe + local world model.
+ *
+ * The one hard rule (workflow doc §4): a vehicle acts ONLY on its own inbox and
+ * its own state. It never reads the global vehicle array. Its picture of the
+ * world is `worldModel`, built entirely from messages it received.
+ */
+export const PROTO = {
+  /** How long a (senderId:seq) key stays in the dedupe set before pruning. */
+  SEEN_TTL_MS: 3000,
+
+  /** Forget a vehicle from the local world model if unheard this long. */
+  MODEL_TTL_MS: 1500,
 };
 
 /** Total road width in metres (used by renderer + spawn logic). */
