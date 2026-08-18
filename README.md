@@ -7,15 +7,15 @@ the safety-critical loop.
 
 ## Status
 
-- **Phase 1 — Road & Motion** ✅ current
+- **Phase 1 — Road & Motion** ✅
   Fixed-timestep vehicle physics on a canvas road with start/pause/reset
   and a seeded PRNG for reproducible runs. See `PHASE1.md`.
+- **Phase 2 — Channel & metrics** ✅ current
+  Explicit V2V channel with range, delay, jitter, and distance-dependent
+  loss; live latency (p50/p95) and PRR meters; drag a car out of range to
+  watch its link degrade. See `PHASE2.md`.
 
 Upcoming phases (dependency order):
-
-- **Phase 2 — Channel & metrics.** Explicit V2V channel with range,
-  delay, jitter, and distance-dependent loss; live latency (p50/p95)
-  and PRR meters.
 - **Phase 3 — Protocol & decentralization.** Per-vehicle inbox, message
   schema, TTL, sequence numbers, duplicate detection, multi-hop
   propagation.

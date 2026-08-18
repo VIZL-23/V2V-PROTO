@@ -47,6 +47,45 @@ export const VEHICLE = {
   DEFAULT_COUNT: 12,
 };
 
+/**
+ * V2V communication channel (Phase 2).
+ *
+ * These are the parameters of an EXPLICIT channel model. Every metric on
+ * screen (latency, PRR, loss) is a real measurement of THIS model — not a
+ * decoration. That is what makes the numbers defensible in the demo.
+ *
+ * Loss grows with distance: near 0 at point-blank range, up to
+ * LOSS_AT_RANGE_M at the edge of range. Beyond RANGE_M, a message is simply
+ * out of range and never counted against PRR (PRR = delivered ÷ in-range).
+ */
+export const CHANNEL = {
+  /** Max communication range in metres. Live-tunable in the UI. */
+  RANGE_M: 100,
+
+  /** Base one-way delay in ms before any jitter. */
+  BASE_DELAY_MS: 8,
+
+  /** Uniform jitter added on top of base delay (0..JITTER_MS). */
+  JITTER_MS: 6,
+
+  /** Packet loss probability at zero distance. */
+  LOSS_AT_ZERO_M: 0.01,
+
+  /** Packet loss probability at the edge of range (interpolated by distance). */
+  LOSS_AT_RANGE_M: 0.35,
+
+  /** Rolling window for "live" metrics, in ms. Stats reflect recent traffic. */
+  METRICS_WINDOW_MS: 3000,
+};
+
+export const MSG = {
+  /** CAM (cooperative awareness) beacon cadence per vehicle, in ms. 10 Hz. */
+  BEACON_INTERVAL_MS: 100,
+
+  /** Default TTL (hops) stamped on a message. Multi-hop lands in Phase 3. */
+  DEFAULT_TTL: 3,
+};
+
 /** Total road width in metres (used by renderer + spawn logic). */
 export const ROAD_WIDTH_M =
   ROAD.LANES * ROAD.LANE_WIDTH_M + 2 * ROAD.SHOULDER_M;

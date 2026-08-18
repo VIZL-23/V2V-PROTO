@@ -22,17 +22,32 @@
 
 import { Rng } from './rng';
 import { Vehicle } from './vehicle';
-import { ROAD, SIM, VEHICLE } from './config';
+import { Metrics } from './metrics';
+import { Channel } from '../channel/channel';
+import { CHANNEL, MSG, ROAD, SIM, VEHICLE } from './config';
 
 export interface WorldOptions {
   seed: number;
   vehicleCount: number;
 }
 
+/**
+ * Derive the channel's RNG seed from the world seed. A separate stream keeps
+ * spawn randomness and channel randomness independent, while a single user
+ * seed still reproduces the entire run.
+ */
+function channelSeed(worldSeed: number): number {
+  return (worldSeed ^ 0x9e3779b9) >>> 0;
+}
+
 export class World {
   vehicles: Vehicle[] = [];
   simClockMs = 0;
   tickCount = 0;
+
+  /** Real channel + real metrics (Phase 2). */
+  readonly metrics = new Metrics();
+  readonly channel: Channel;
 
   private readonly seed: number;
   private readonly vehicleCount: number;
@@ -42,6 +57,17 @@ export class World {
     this.seed = opts.seed;
     this.vehicleCount = opts.vehicleCount;
     this.rng = new Rng(this.seed);
+    this.channel = new Channel(
+      channelSeed(this.seed),
+      {
+        rangeM: CHANNEL.RANGE_M,
+        baseDelayMs: CHANNEL.BASE_DELAY_MS,
+        jitterMs: CHANNEL.JITTER_MS,
+        lossAtZeroM: CHANNEL.LOSS_AT_ZERO_M,
+        lossAtRangeM: CHANNEL.LOSS_AT_RANGE_M,
+      },
+      this.metrics
+    );
     this.spawn();
   }
 
@@ -54,6 +80,8 @@ export class World {
     this.simClockMs = 0;
     this.tickCount = 0;
     this.rng = new Rng(this.seed);
+    this.metrics.reset();
+    this.channel.reset();
     this.vehicles = [];
     this.spawn();
   }
@@ -61,16 +89,77 @@ export class World {
   /** Advance sim by exactly one fixed step. */
   step(): void {
     const dtSec = SIM.STEP_MS / 1000;
+
+    // 1. Physics — each vehicle integrates its own state only.
     for (const v of this.vehicles) {
       v.step(dtSec);
       // Wrap around the road so cars don't drive off the end in Phase 1.
       // (Later phases will use a longer road and interactive traffic.)
       if (v.x > ROAD.LENGTH_M) {
         v.x -= ROAD.LENGTH_M;
+      } else if (v.x < 0) {
+        v.x += ROAD.LENGTH_M;
       }
     }
+
     this.simClockMs += SIM.STEP_MS;
     this.tickCount += 1;
+    const now = this.simClockMs;
+
+    // 2. CAM beacons — each vehicle broadcasts through the CHANNEL on its
+    //    own cadence. This is what generates real latency/PRR measurements.
+    for (const v of this.vehicles) {
+      if (now - v.lastBeaconMs >= MSG.BEACON_INTERVAL_MS) {
+        v.lastBeaconMs = now;
+        this.channel.broadcast(v, v.makeCam(now), this.vehicles, now);
+      }
+    }
+
+    // 3. Deliver any messages whose (delayed) arrival time has come.
+    this.channel.deliverDue(now);
+
+    // 4. Phase 2 consumes nothing yet — drain inboxes so they don't grow.
+    //    Phase 3 replaces this with dedupe → world-model → risk → re-broadcast.
+    for (const v of this.vehicles) {
+      if (v.inbox.length > 0) v.inbox.length = 0;
+    }
+
+    // 5. Age out old metric samples so the panel reads "live".
+    this.metrics.prune(now);
+  }
+
+  /**
+   * Nearest vehicle to a point (metres), within `radiusM`. For click-to-select
+   * and drag. Returns null if nothing is close enough.
+   */
+  pickVehicleAt(xM: number, yM: number, radiusM: number): Vehicle | null {
+    let best: Vehicle | null = null;
+    let bestD = radiusM;
+    for (const v of this.vehicles) {
+      const d = Math.hypot(v.x - xM, v.y - yM);
+      if (d <= bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  findVehicle(id: string): Vehicle | undefined {
+    return this.vehicles.find((v) => v.id === id);
+  }
+
+  /** How many other vehicles are within the current channel range of `id`. */
+  inRangeCount(id: string): number {
+    const self = this.findVehicle(id);
+    if (!self) return 0;
+    const r = this.channel.cfg.rangeM;
+    let n = 0;
+    for (const v of this.vehicles) {
+      if (v === self) continue;
+      if (Math.hypot(v.x - self.x, v.y - self.y) <= r) n++;
+    }
+    return n;
   }
 
   /**

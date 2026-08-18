@@ -1,25 +1,38 @@
 /**
- * App shell — canvas + controls.
+ * App shell — canvas + controls + live metrics (Phases 1–2).
  *
  * Design rules baked in here (from the workflow doc, §11):
  *
  *   1. Simulation state is NEVER in React state. It lives in a ref (`worldRef`).
- *      React state holds ONLY UI-observable things: is it running, seed, count.
+ *      React state holds ONLY UI-observable things: is it running, seed, count,
+ *      selection, channel range, and the latest metrics SNAPSHOT.
  *
  *   2. The rAF loop accumulates real elapsed time and calls world.step()
- *      in fixed 50ms increments. Rendering runs at rAF cadence (whatever the
- *      monitor is doing). Physics does NOT.
+ *      in fixed 50ms increments. Rendering runs at rAF cadence. Physics does NOT.
  *
- *   3. HUD text and controls re-render on React state changes, not per frame.
- *      A throttled subscription for a metric panel comes in a later phase.
+ *   3. Two independent clocks on purpose: the canvas redraws every frame, but
+ *      the React metrics panel re-renders on a THROTTLED 10 Hz subscription.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { World } from './sim/world';
-import { SIM, VEHICLE } from './sim/config';
-import { drawFrame } from './render/canvasRenderer';
+import { CHANNEL, RENDER, ROAD, ROAD_WIDTH_M, SIM, VEHICLE } from './sim/config';
+import type { MetricsSnapshot } from './sim/metrics';
+import { drawFrame, roadOrigin } from './render/canvasRenderer';
 import { Controls } from './ui/Controls';
+import { MetricsPanel } from './ui/MetricsPanel';
 import './App.css';
+
+/** What the throttled subscription publishes to the metrics panel. */
+interface PanelState {
+  metrics: MetricsSnapshot;
+  selected:
+    | { id: string; inRange: number; link: ReturnType<World['metrics']['snapshotFor']> }
+    | null;
+}
+
+/** Grab radius (metres) for click-to-select. */
+const PICK_RADIUS_M = 6;
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -28,25 +41,48 @@ export function App() {
   const rafIdRef = useRef<number | null>(null);
   const lastRealTimeMsRef = useRef<number | null>(null);
   const accumulatorMsRef = useRef(0);
+  const draggingIdRef = useRef<string | null>(null);
 
   const [running, setRunning] = useState(false);
   const [vehicleCount, setVehicleCount] = useState(VEHICLE.DEFAULT_COUNT);
   const [seed, setSeed] = useState(42);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [channelRange, setChannelRange] = useState(CHANNEL.RANGE_M);
+  const [panel, setPanel] = useState<PanelState | null>(null);
+
+  // Refs mirror state the rAF/draw closures need to read at their latest value.
+  const selectedIdRef = useRef<string | null>(null);
+  const channelRangeRef = useRef(channelRange);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { channelRangeRef.current = channelRange; }, [channelRange]);
 
   // --- Sim (re)creation ------------------------------------------------------
   const buildWorld = useCallback(() => {
-    worldRef.current = new World({ seed, vehicleCount });
+    const world = new World({ seed, vehicleCount });
+    world.channel.cfg.rangeM = channelRangeRef.current;
+    worldRef.current = world;
     accumulatorMsRef.current = 0;
     lastRealTimeMsRef.current = null;
+    draggingIdRef.current = null;
   }, [seed, vehicleCount]);
 
   // Rebuild the world whenever seed or vehicleCount changes.
   useEffect(() => {
     buildWorld();
-    // Immediately draw the paused initial frame so the user sees the effect.
+    setPanel(null);
     requestAnimationFrame(() => drawOnce());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed, vehicleCount]);
+
+  // Live channel-range control: no rebuild, just retune the running channel.
+  useEffect(() => {
+    const world = worldRef.current;
+    if (world) {
+      world.channel.cfg.rangeM = channelRange;
+      if (!runningRef.current) drawOnce();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelRange]);
 
   // --- Canvas sizing ---------------------------------------------------------
   useEffect(() => {
@@ -70,6 +106,21 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- Throttled 10 Hz metrics subscription ---------------------------------
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const world = worldRef.current;
+      if (!world) return;
+      const selId = selectedIdRef.current;
+      const selected =
+        selId && world.findVehicle(selId)
+          ? { id: selId, inRange: world.inRangeCount(selId), link: world.metrics.snapshotFor(selId) }
+          : null;
+      setPanel({ metrics: world.metrics.snapshot(), selected });
+    }, 100);
+    return () => window.clearInterval(id);
+  }, []);
+
   // --- Draw one frame from the current world state --------------------------
   const drawOnce = useCallback(() => {
     const canvas = canvasRef.current;
@@ -78,7 +129,7 @@ export function App() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
-    drawFrame(ctx, world, rect.width, rect.height);
+    drawFrame(ctx, world, rect.width, rect.height, { selectedId: selectedIdRef.current });
   }, []);
 
   // --- Main loop ------------------------------------------------------------
@@ -101,10 +152,7 @@ export function App() {
 
       // Fixed-step physics: run as many steps as fit into elapsed time.
       let safetyBudget = 20; // hard cap on steps per frame
-      while (
-        accumulatorMsRef.current >= SIM.STEP_MS &&
-        safetyBudget-- > 0
-      ) {
+      while (accumulatorMsRef.current >= SIM.STEP_MS && safetyBudget-- > 0) {
         world.step();
         accumulatorMsRef.current -= SIM.STEP_MS;
       }
@@ -144,9 +192,68 @@ export function App() {
     worldRef.current?.reset();
     accumulatorMsRef.current = 0;
     lastRealTimeMsRef.current = null;
+    draggingIdRef.current = null;
     drawOnce();
     if (wasRunning) start();
   }, [pause, start, drawOnce]);
+
+  // --- Canvas pointer: click-to-select + drag a car -------------------------
+  /** Convert a pointer event to world metres, matching the renderer's origin. */
+  const eventToWorld = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const origin = roadOrigin(rect.height);
+    return {
+      xM: (e.clientX - rect.left - origin.x) / RENDER.PX_PER_M,
+      yM: (e.clientY - rect.top - origin.y) / RENDER.PX_PER_M,
+    };
+  }, []);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const world = worldRef.current;
+      if (!world) return;
+      const { xM, yM } = eventToWorld(e);
+      const hit = world.pickVehicleAt(xM, yM, PICK_RADIUS_M);
+      if (hit) {
+        setSelectedId(hit.id);
+        selectedIdRef.current = hit.id;
+        draggingIdRef.current = hit.id;
+        hit.held = true;
+        canvasRef.current?.setPointerCapture(e.pointerId);
+      } else {
+        setSelectedId(null);
+        selectedIdRef.current = null;
+      }
+      drawOnce();
+    },
+    [drawOnce, eventToWorld]
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const id = draggingIdRef.current;
+      const world = worldRef.current;
+      if (!id || !world) return;
+      const v = world.findVehicle(id);
+      if (!v) return;
+      const { xM, yM } = eventToWorld(e);
+      // Wrap along the road; clamp across it so the car stays on the surface.
+      v.x = ((xM % ROAD.LENGTH_M) + ROAD.LENGTH_M) % ROAD.LENGTH_M;
+      v.y = clamp(yM, VEHICLE.WIDTH_M / 2, ROAD_WIDTH_M - VEHICLE.WIDTH_M / 2);
+      if (!runningRef.current) drawOnce();
+    },
+    [drawOnce, eventToWorld]
+  );
+
+  const endDrag = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const id = draggingIdRef.current;
+    if (!id) return;
+    const v = worldRef.current?.findVehicle(id);
+    if (v) v.held = false;
+    draggingIdRef.current = null;
+    canvasRef.current?.releasePointerCapture(e.pointerId);
+  }, []);
 
   // Cleanup on unmount.
   useEffect(() => {
@@ -161,7 +268,7 @@ export function App() {
         <div className="brand">
           <span className="brand-dot" />
           <span className="brand-title">V2V-SIH</span>
-          <span className="brand-sub">Phase 1 · Road &amp; Motion</span>
+          <span className="brand-sub">Phase 2 · Channel &amp; Metrics</span>
         </div>
         <div className="status">
           <span className={`status-dot ${running ? 'status-run' : 'status-pause'}`} />
@@ -179,14 +286,33 @@ export function App() {
         onSeedChange={setSeed}
       />
 
-      <div className="canvas-wrap">
-        <canvas ref={canvasRef} className="road-canvas" />
+      <div className="stage">
+        <div className="canvas-wrap">
+          <canvas
+            ref={canvasRef}
+            className="road-canvas"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          />
+        </div>
+        <MetricsPanel
+          metrics={panel?.metrics ?? null}
+          channelRange={channelRange}
+          onRangeChange={setChannelRange}
+          selected={panel?.selected ?? null}
+        />
       </div>
 
       <footer className="app-footer">
-        Fixed timestep {SIM.STEP_MS}ms · Seeded PRNG · Physics decoupled from render ·
-        Reset ⟲ produces an identical run.
+        Explicit channel · range {channelRange}m · delay+jitter+distance-loss ·
+        Metrics are measured, not typed · Drag a car past the ring to drop its link.
       </footer>
     </div>
   );
+}
+
+function clamp(x: number, lo: number, hi: number): number {
+  return x < lo ? lo : x > hi ? hi : x;
 }

@@ -3,12 +3,16 @@
  *
  * Design rule (from the workflow doc):
  *   - Each vehicle knows ONLY about itself.
- *   - In Phase 3 we'll add an inbox; each vehicle's world model is built
- *     from received messages, NOT by reading the global vehicle array.
- *   - Phase 1: no inter-vehicle interaction yet. Just physics.
+ *   - Its inbox is filled by the Channel, NOT by reading the global vehicle
+ *     array. In Phase 3 the inbox drives a per-vehicle world model + risk.
+ *   - Phase 2: the vehicle emits CAM beacons and receives others' beacons
+ *     through the channel, but does not yet act on them.
  *
  * Units: METRES, SECONDS, RADIANS.
  */
+
+import { MSG } from './config';
+import type { V2VMessage } from './message';
 
 export type VehicleStatus = 'NORMAL' | 'WARNING' | 'EMERGENCY';
 
@@ -30,6 +34,18 @@ export class Vehicle {
   heading: number;
   status: VehicleStatus = 'NORMAL';
 
+  /** Messages delivered by the Channel. The vehicle's only window on the world. */
+  inbox: V2VMessage[] = [];
+
+  /** Per-sender sequence counter → dedupe key with id (see message.ts). */
+  private seq = 0;
+
+  /** Sim clock of the last CAM beacon this vehicle sent. */
+  lastBeaconMs = -Infinity;
+
+  /** When true, the user is dragging this car: skip physics integration. */
+  held = false;
+
   constructor(init: VehicleInit) {
     this.id = init.id;
     this.x = init.x;
@@ -37,6 +53,21 @@ export class Vehicle {
     this.vel = init.vel;
     this.accel = init.accel;
     this.heading = init.heading;
+  }
+
+  /** Build a CAM (cooperative awareness) beacon describing this vehicle now. */
+  makeCam(nowMs: number): V2VMessage {
+    return {
+      senderId: this.id,
+      seq: this.seq++,
+      type: 'CAM',
+      sentAt: nowMs,
+      ttl: MSG.DEFAULT_TTL,
+      pos: { x: this.x, y: this.y },
+      vel: this.vel,
+      accel: this.accel,
+      heading: this.heading,
+    };
   }
 
   /**
@@ -50,6 +81,9 @@ export class Vehicle {
    * This is stable enough for a driving sim at 50ms steps.
    */
   step(dtSec: number): void {
+    // While the user is dragging this car, its position is set by the mouse.
+    if (this.held) return;
+
     // Update velocity from acceleration.
     this.vel += this.accel * dtSec;
 

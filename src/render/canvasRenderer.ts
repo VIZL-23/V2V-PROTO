@@ -21,15 +21,30 @@ const COLORS = {
   vehicleHeading: '#0b1220',
   vehicleLabel: '#e6ecf8',
   hudLabel: '#8ea1c9',
+  rangeRing: '#29b6d8',
+  linkInRange: '#29d391',
+  selectHalo: '#ffffff',
 } as const;
 
 const m2px = (m: number) => m * RENDER.PX_PER_M;
+
+export interface DrawOptions {
+  /** Vehicle to highlight, draw a range ring around, and link to neighbours. */
+  selectedId?: string | null;
+}
+
+/** Shared origin math so hit-testing in the UI matches what's drawn. */
+export function roadOrigin(canvasHeight: number): { x: number; y: number } {
+  const roadPxH = m2px(ROAD_WIDTH_M);
+  return { x: 0, y: Math.max(0, (canvasHeight - roadPxH) / 2) };
+}
 
 export function drawFrame(
   ctx: CanvasRenderingContext2D,
   world: World,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  opts: DrawOptions = {}
 ): void {
   // Canvas coord system: we draw the road horizontally.
   // World: x is along road (0..LENGTH_M), y is across road (0..ROAD_WIDTH_M).
@@ -42,18 +57,72 @@ export function drawFrame(
   const roadPxH = m2px(ROAD_WIDTH_M);
 
   // Centre the road vertically in the canvas.
-  const originX = 0;
-  const originY = Math.max(0, (canvasHeight - roadPxH) / 2);
+  const { x: originX, y: originY } = roadOrigin(canvasHeight);
 
   drawRoad(ctx, originX, originY, roadPxW, roadPxH);
 
+  // Channel overlay: range ring + links from the selected vehicle. Drawn under
+  // the vehicles so the cars stay crisp on top.
+  const selected = opts.selectedId ? world.findVehicle(opts.selectedId) : undefined;
+  if (selected) {
+    drawChannelOverlay(ctx, world, selected, originX, originY);
+  }
+
   // Vehicles.
   for (const v of world.vehicles) {
-    drawVehicle(ctx, v, originX, originY);
+    drawVehicle(ctx, v, originX, originY, v === selected);
   }
 
   // HUD text.
   drawHud(ctx, world, canvasWidth, canvasHeight);
+}
+
+/**
+ * Range ring around the selected vehicle plus a link line to every other
+ * vehicle currently within channel range — a live picture of who it can talk
+ * to. Pull the car past the ring and the links vanish.
+ */
+function drawChannelOverlay(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  sel: Vehicle,
+  originX: number,
+  originY: number
+): void {
+  const cx = originX + m2px(sel.x);
+  const cy = originY + m2px(sel.y);
+  const rangePx = m2px(world.channel.cfg.rangeM);
+
+  // Range ring.
+  ctx.save();
+  ctx.strokeStyle = COLORS.rangeRing;
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.arc(cx, cy, rangePx, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Filled range disc, very faint.
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = COLORS.rangeRing;
+  ctx.fill();
+
+  // Links to in-range neighbours.
+  const r = world.channel.cfg.rangeM;
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = COLORS.linkInRange;
+  ctx.lineWidth = 1;
+  for (const v of world.vehicles) {
+    if (v === sel) continue;
+    if (Math.hypot(v.x - sel.x, v.y - sel.y) > r) continue;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(originX + m2px(v.x), originY + m2px(v.y));
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawRoad(
@@ -105,7 +174,8 @@ function drawVehicle(
   ctx: CanvasRenderingContext2D,
   v: Vehicle,
   originX: number,
-  originY: number
+  originY: number,
+  selected: boolean
 ): void {
   const cx = originX + m2px(v.x);
   const cy = originY + m2px(v.y);
@@ -115,6 +185,17 @@ function drawVehicle(
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(v.heading);
+
+  // Selection halo.
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = COLORS.selectHalo;
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = 2;
+    roundRect(ctx, -w / 2 - 3, -h / 2 - 3, w + 6, h + 6, 4);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // Body — rounded rectangle.
   const fill =

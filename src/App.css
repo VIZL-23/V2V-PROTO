@@ -147,9 +147,17 @@
   text-align: right;
 }
 
+/* ---------- Stage (canvas + sidebar) ---------- */
+.stage {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
 /* ---------- Canvas ---------- */
 .canvas-wrap {
   flex: 1;
+  min-width: 0;
   padding: 20px;
   overflow: hidden;
 }
@@ -161,6 +169,148 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.road-canvas:active {
+  cursor: grabbing;
+}
+
+/* ---------- Sidebar / metrics ---------- */
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  padding: 20px 20px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.metric-tile {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.metric-accent {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.tone-ok { color: var(--ok); }
+.tone-warn { color: var(--warn); }
+.tone-danger { color: var(--danger); }
+
+.metric-sub {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.range-control {
+  margin-bottom: 12px;
+}
+
+.range-control input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.param-list {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.param-list > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.param-list dt {
+  color: var(--text-dim);
+}
+
+.param-list dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.sel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sel-id {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.badge-ok {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.badge-danger {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 
 /* ---------- Footer ---------- */
