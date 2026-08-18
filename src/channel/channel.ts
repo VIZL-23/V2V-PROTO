@@ -14,9 +14,8 @@
  *       schedule Vx.inbox.push(msg) at t + delay
  *
  * Determinism: the channel owns its OWN seeded RNG stream, separate from the
- * spawn RNG. Same seed → same loss/jitter rolls → same run. This is what makes
- * the Phase 5 edge-vs-cloud comparison a controlled experiment rather than two
- * different random worlds.
+ * spawn RNG. Same seed → same loss/jitter rolls → same run, so metrics and the
+ * warning time are reproducible rather than a different random world each time.
  */
 
 import { Rng } from '../sim/rng';

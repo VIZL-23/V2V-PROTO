@@ -2,8 +2,8 @@
  * Seeded PRNG — mulberry32.
  *
  * Reason we're using this even in Phase 1: reproducible spawns.
- * Same seed → identical run twice. That's the Phase 1 done-criterion,
- * and it's the foundation for the edge-vs-cloud comparison in Phase 5.
+ * Same seed → identical run twice. That's the Phase 1 done-criterion, and it
+ * keeps every later measurement (metrics, warning time) reproducible.
  *
  * NEVER call Math.random() anywhere in sim/ code.
  */

@@ -124,12 +124,14 @@ export class Vehicle {
    * Assess collision risk over the local world model and set this vehicle's
    * own control (acceleration) accordingly. This is the decentralized safety
    * loop: input is only self + world model; output is only this car's braking.
+   * The decision is local and immediate — no central node in the path.
    */
   updateRiskAndControl(): void {
     const a = assessRisk(
       { x: this.x, y: this.y, vel: this.vel, heading: this.heading },
       this.worldModel.values()
     );
+
     this.riskLevel = a.level;
     this.ttc = a.ttc;
     this.threatId = a.threatId;

@@ -39,7 +39,12 @@ interface PanelState {
         insideSafe: boolean;
       }
     | null;
-  scenario: { emergencyActive: boolean; brakerId: string | null; warningTimeMs: number | null };
+  scenario: {
+    emergencyActive: boolean;
+    brakerId: string | null;
+    warningTimeMs: number | null;
+    edgeStats: import('./edge/rsu').EdgeStats;
+  };
 }
 
 /** Grab radius (metres) for click-to-select. */
@@ -144,6 +149,7 @@ export function App() {
           emergencyActive: world.emergencyBrakerId !== null,
           brakerId: world.emergencyBrakerId,
           warningTimeMs: world.warningTimeMs,
+          edgeStats: world.edgeStats,
         },
       });
     }, 100);
@@ -308,7 +314,7 @@ export function App() {
         <div className="brand">
           <span className="brand-dot" />
           <span className="brand-title">V2V-SIH</span>
-          <span className="brand-sub">Phase 4 · Risk &amp; Hero Scenario</span>
+          <span className="brand-sub">Phase 5 · Edge Node</span>
         </div>
         <div className="status">
           <span className={`status-dot ${running ? 'status-run' : 'status-pause'}`} />
@@ -345,13 +351,13 @@ export function App() {
           channelRange={channelRange}
           onRangeChange={setChannelRange}
           selected={panel?.selected ?? null}
-          scenario={panel?.scenario ?? { emergencyActive: false, brakerId: null, warningTimeMs: null }}
+          scenario={panel?.scenario}
         />
       </div>
 
       <footer className="app-footer">
-        Risk (TTC + RSS-lite) computed inside each vehicle · 🚨 trigger to watch
-        brake → broadcast → DANGER → propagate · warning time is the headline number.
+        RSU observes (density · congestion) beside the safety loop, never inside it ·
+        every braking decision stays local at the vehicle — no cloud in the safety-critical path.
       </footer>
     </div>
   );

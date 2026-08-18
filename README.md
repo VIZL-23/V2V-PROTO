@@ -14,18 +14,22 @@ the safety-critical loop.
   Explicit V2V channel with range, delay, jitter, and distance-dependent
   loss; live latency (p50/p95) and PRR meters; drag a car out of range to
   watch its link degrade. See `PHASE2.md`.
-- **Phase 3 — Protocol & decentralization** ✅ current
+- **Phase 3 — Protocol & decentralization** ✅
   Per-vehicle inbox + local world model, dedupe by (senderId, seq), TTL
   multi-hop relay, and duplicate rejection. Select a car to see its own
   world model — green links direct, amber links relayed. See `PHASE3.md`.
+- **Phase 4 — Risk & the hero scenario** ✅
+  TTC + RSS-lite risk engine inside each vehicle, colour-coded risk states,
+  `🚨 Trigger Emergency`, and the headline warning-time metric. Fire it and
+  watch the DANGER wave propagate backward through the column. See `PHASE4.md`.
+- **Phase 5 — Edge node** ✅ current
+  RSU parallel observer (connected · density · congestion) that taps the channel
+  beside the safety loop and flags incidents — while every braking decision stays
+  local at the vehicle. See `PHASE5.md`.
 
-Upcoming phases (dependency order):
-- **Phase 4 — Risk & the hero scenario.** TTC + RSS-lite risk engine,
-  `🚨 Trigger Emergency` button, propagation animation, colour-coded
-  risk states.
-- **Phase 5 — Edge node & cloud toggle.** RSU on the road doing traffic
-  aggregation, plus an Edge/Cloud switch that runs the same seed with
-  a simulated cloud round-trip so the warning-time gap is visible.
+**Prototype complete** — all five phases land in one running app. Stretch goals
+(road-graph routing, intersection scenario, Web Workers, spoofed-message
+security demo) remain explicitly out of scope.
 
 ## Getting started
 

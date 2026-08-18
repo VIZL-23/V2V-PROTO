@@ -136,6 +136,29 @@ export const PROTO = {
   MODEL_TTL_MS: 1500,
 };
 
+/**
+ * RSU / edge node (§3) — a PARALLEL OBSERVER. It taps the channel to aggregate
+ * traffic, but nothing it computes ever flows back into a vehicle's braking
+ * decision. It sits beside the safety loop, not inside it.
+ */
+export const RSU = {
+  /** Position along the road (metres). Centred so it covers the corridor. */
+  X_M: 150,
+
+  /** Observation range (metres). */
+  RANGE_M: 150,
+
+  /** Below this mean speed with traffic present, the RSU flags congestion. */
+  CONGESTION_SPEED_MPS: 8,
+
+  /** A vehicle slower than this counts as stopped → incident/congestion. */
+  STOPPED_SPEED_MPS: 2,
+
+  /** Density category thresholds (vehicles per km over the observed span). */
+  DENSITY_LOW_PER_KM: 25,
+  DENSITY_HIGH_PER_KM: 45,
+};
+
 /** Total road width in metres (used by renderer + spawn logic). */
 export const ROAD_WIDTH_M =
   ROAD.LANES * ROAD.LANE_WIDTH_M + 2 * ROAD.SHOULDER_M;

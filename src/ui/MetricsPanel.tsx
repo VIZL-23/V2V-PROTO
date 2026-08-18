@@ -13,6 +13,7 @@
 import { CHANNEL } from '../sim/config';
 import type { LinkSnapshot, MetricsSnapshot } from '../sim/metrics';
 import type { RiskLevel } from '../risk/risk';
+import type { EdgeStats } from '../edge/rsu';
 
 interface KnownPeer {
   id: string;
@@ -37,6 +38,7 @@ interface ScenarioInfo {
   emergencyActive: boolean;
   brakerId: string | null;
   warningTimeMs: number | null;
+  edgeStats: EdgeStats;
 }
 
 interface MetricsPanelProps {
@@ -44,17 +46,23 @@ interface MetricsPanelProps {
   channelRange: number;
   onRangeChange: (m: number) => void;
   selected: SelectedInfo | null;
-  scenario: ScenarioInfo;
+  scenario?: ScenarioInfo;
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const ms = (x: number) => `${x.toFixed(1)} ms`;
 
-const NO_SCENARIO: ScenarioInfo = { emergencyActive: false, brakerId: null, warningTimeMs: null };
+const NO_SCENARIO: ScenarioInfo = {
+  emergencyActive: false,
+  brakerId: null,
+  warningTimeMs: null,
+  edgeStats: { connected: 0, densityPerKm: 0, density: 'LOW', avgSpeedMps: 0, congestion: false },
+};
 
 export function MetricsPanel(props: MetricsPanelProps) {
   const { metrics, channelRange, onRangeChange, selected } = props;
   const scenario = props.scenario ?? NO_SCENARIO;
+  const { edgeStats } = scenario;
 
   return (
     <aside className="sidebar">
@@ -70,7 +78,25 @@ export function MetricsPanel(props: MetricsPanelProps) {
         <div className="metric-sub">
           {scenario.emergencyActive
             ? `${scenario.brakerId} braking → first DANGER downstream`
-            : 'braker decelerates → first follower reaches DANGER'}
+            : 'braker decelerates → first follower reaches DANGER · decided locally at the vehicle'}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2 className="panel-title">Edge node · RSU</h2>
+        <dl className="param-list">
+          <div><dt>Connected</dt><dd>{edgeStats.connected}</dd></div>
+          <div><dt>Density</dt><dd>{edgeStats.density} ({edgeStats.densityPerKm.toFixed(0)}/km)</dd></div>
+          <div><dt>Avg speed</dt><dd>{edgeStats.avgSpeedMps.toFixed(1)} m/s</dd></div>
+          <div>
+            <dt>Congestion</dt>
+            <dd className={edgeStats.congestion ? 'tone-danger' : 'tone-ok'}>
+              {edgeStats.congestion ? 'YES' : 'no'}
+            </dd>
+          </div>
+        </dl>
+        <div className="metric-sub">
+          The RSU only observes — nothing it computes reaches a braking decision.
         </div>
       </section>
 

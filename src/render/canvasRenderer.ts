@@ -25,6 +25,8 @@ const COLORS = {
   linkDirect: '#29d391', // heard directly (0 hops)
   linkRelayed: '#ffb020', // heard via relay (multi-hop)
   selectHalo: '#ffffff',
+  rsu: '#a78bfa', // roadside unit — a distinct, non-vehicle colour
+  rsuCongested: '#ff5b5b',
 } as const;
 
 const m2px = (m: number) => m * RENDER.PX_PER_M;
@@ -61,6 +63,9 @@ export function drawFrame(
   const { x: originX, y: originY } = roadOrigin(canvasHeight);
 
   drawRoad(ctx, originX, originY, roadPxW, roadPxH);
+
+  // RSU / edge node — the roadside observer, drawn under the vehicles.
+  drawRsu(ctx, world, originX, originY);
 
   // Channel overlay: range ring + links from the selected vehicle. Drawn under
   // the vehicles so the cars stay crisp on top.
@@ -170,6 +175,65 @@ function drawChannelOverlay(
       ctx.stroke();
     }
   }
+  ctx.restore();
+}
+
+/**
+ * The roadside unit: a mast beside the road with a faint coverage wedge and a
+ * live badge (density / congestion). It is visually distinct from vehicles
+ * because it is NOT one — it observes, it never brakes anything.
+ */
+function drawRsu(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  originX: number,
+  originY: number
+): void {
+  const rsu = world.rsu;
+  const cx = originX + m2px(rsu.x);
+  const roadPxH = m2px(ROAD_WIDTH_M);
+  const topY = originY;
+  const congested = world.edgeStats.congestion;
+  const color = congested ? COLORS.rsuCongested : COLORS.rsu;
+
+  ctx.save();
+
+  // Coverage band across the road within range.
+  const cov = m2px(rsu.rangeM);
+  ctx.globalAlpha = 0.05;
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - cov, topY, cov * 2, roadPxH);
+
+  // Mast just above the road.
+  const mastY = topY - 14;
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, topY);
+  ctx.lineTo(cx, mastY);
+  ctx.stroke();
+
+  // Signal arcs.
+  for (let i = 1; i <= 2; i++) {
+    ctx.globalAlpha = 0.5 / i;
+    ctx.beginPath();
+    ctx.arc(cx, mastY, 4 + i * 4, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.arc(cx, mastY, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Label.
+  ctx.fillStyle = color;
+  ctx.font = 'bold 10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(congested ? 'RSU · CONGESTION' : 'RSU', cx, mastY - 12);
+
   ctx.restore();
 }
 

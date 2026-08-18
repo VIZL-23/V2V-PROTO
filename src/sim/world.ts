@@ -24,7 +24,8 @@ import { Rng } from './rng';
 import { Vehicle } from './vehicle';
 import { Metrics } from './metrics';
 import { Channel } from '../channel/channel';
-import { CHANNEL, MSG, ROAD, SIM, VEHICLE } from './config';
+import { Rsu, type EdgeStats } from '../edge/rsu';
+import { CHANNEL, MSG, ROAD, ROAD_WIDTH_M, RSU, SIM, VEHICLE } from './config';
 
 export interface WorldOptions {
   seed: number;
@@ -59,6 +60,19 @@ export class World {
    * other vehicle computing DANGER. Null until that happens.
    */
   warningTimeMs: number | null = null;
+
+  // --- Edge node (Phase 5) ---------------------------------------------------
+  /** The roadside unit — a parallel observer, never in the safety loop. */
+  readonly rsu = new Rsu(RSU.X_M, ROAD_WIDTH_M / 2, RSU.RANGE_M);
+
+  /** Latest RSU aggregate (connected / density / congestion). */
+  edgeStats: EdgeStats = {
+    connected: 0,
+    densityPerKm: 0,
+    density: 'LOW',
+    avgSpeedMps: 0,
+    congestion: false,
+  };
 
   private readonly seed: number;
   private readonly vehicleCount: number;
@@ -192,7 +206,10 @@ export class World {
     }
     this.updateWarningTime(now);
 
-    // 6. Age out old metric samples so the panel reads "live".
+    // 6. RSU tap — aggregate the road as a parallel observer (never fed back).
+    this.edgeStats = this.rsu.observe(this.vehicles);
+
+    // 7. Age out old metric samples so the panel reads "live".
     this.metrics.prune(now);
   }
 
