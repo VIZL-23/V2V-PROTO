@@ -48,7 +48,7 @@ export function CommandBar(props: CommandBarProps) {
           <IconNode size={17} />
         </span>
         <span className="cmd-word">
-          V2V<span className="cmd-word-dim">·</span>SIH
+          VahaanSetu<span className="cmd-word-dim">·</span>
         </span>
         <span className="cmd-tagline">Decentralized V2V telemetry</span>
       </div>
