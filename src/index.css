@@ -1,26 +1,55 @@
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  line-height: 1.5;
-  color-scheme: dark;
+  /* Type ------------------------------------------------------------------ */
+  --font-ui: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
-  --bg: #0b1220;
-  --panel: #111a2e;
-  --panel-2: #172441;
-  --border: #223056;
-  --text: #e6ecf8;
-  --text-dim: #8ea1c9;
-  --accent: #29b6d8;
-  --accent-2: #ff9f1c;
-  --danger: #ff5b5b;
-  --warn: #ffb020;
-  --ok: #29d391;
+  font-family: var(--font-ui);
+  line-height: 1.45;
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+
+  /* Instrument field — near-black, cold. Not navy SaaS. ------------------- */
+  --bg: #06080c;
+  --field: #080b11;      /* the road sensor-feed ground */
+  --surface-1: #0b0e15;  /* panels / rails */
+  --surface-2: #10141d;  /* raised readout wells */
+  --well: #090c12;       /* recessed value wells */
+
+  /* Hairlines — separation by line and value, never shadow/gradient. ----- */
+  --line: #19202b;
+  --line-strong: #253040;
+  --grid: #0e131b;
+
+  /* Text ----------------------------------------------------------------- */
+  --text: #e9edf3;
+  --text-dim: #8592a3;
+  --text-faint: #566373;
+
+  /* Meaning — each hue has exactly one job. ------------------------------ */
+  --signal: #35c2e6;   /* interactive · live · selection · direct link */
+  --safe: #33c98a;     /* SAFE / nominal */
+  --warn: #f2b23d;     /* WARNING */
+  --danger: #ff5666;   /* DANGER */
+  --rsu: #8b80f2;      /* roadside unit (infrastructure) */
+
+  --safe-dim: color-mix(in srgb, var(--safe) 16%, transparent);
+  --warn-dim: color-mix(in srgb, var(--warn) 16%, transparent);
+  --danger-dim: color-mix(in srgb, var(--danger) 18%, transparent);
+  --signal-dim: color-mix(in srgb, var(--signal) 16%, transparent);
+  --rsu-dim: color-mix(in srgb, var(--rsu) 16%, transparent);
+
+  --focus: color-mix(in srgb, var(--signal) 70%, white 10%);
 }
 
 * {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -28,6 +57,92 @@ html, body, #root {
   color: var(--text);
 }
 
+body {
+  font-size: 14px;
+}
+
 button {
   font-family: inherit;
+}
+
+/* Every measured value is instrument type — tabular, engineered. */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'zero' 1;
+}
+
+/* Browser surfaces belong to the design system, not the platform. -------- */
+::selection {
+  background: color-mix(in srgb, var(--signal) 32%, transparent);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 0;
+  border: 2px solid var(--bg);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Native range input, themed to the instrument. ------------------------- */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--line-strong);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 0;
+  background: var(--signal);
+  border: none;
+  transform: rotate(45deg); /* diamond keystone — reads as an instrument nib */
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 0;
+  background: var(--signal);
+  border: none;
+}
+
+input[type='range']:focus-visible {
+  outline: none;
+}
+
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

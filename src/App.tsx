@@ -16,10 +16,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { World } from './sim/world';
-import { CHANNEL, RENDER, ROAD, ROAD_WIDTH_M, SIM, VEHICLE } from './sim/config';
+import { CHANNEL, ROAD, ROAD_WIDTH_M, SIM, VEHICLE } from './sim/config';
 import type { MetricsSnapshot } from './sim/metrics';
-import { drawFrame, roadOrigin } from './render/canvasRenderer';
-import { Controls } from './ui/Controls';
+import { drawFrame, viewTransform } from './render/canvasRenderer';
+import { CommandBar } from './ui/CommandBar';
 import { MetricsPanel } from './ui/MetricsPanel';
 import './App.css';
 
@@ -45,6 +45,7 @@ interface PanelState {
     warningTimeMs: number | null;
     edgeStats: import('./edge/rsu').EdgeStats;
   };
+  fleet: { safe: number; warning: number; danger: number };
 }
 
 /** Grab radius (metres) for click-to-select. */
@@ -142,6 +143,12 @@ export function App() {
             insideSafe: selVehicle.insideSafe,
           }
         : null;
+      const fleet = { safe: 0, warning: 0, danger: 0 };
+      for (const v of world.vehicles) {
+        if (v.riskLevel === 'DANGER') fleet.danger++;
+        else if (v.riskLevel === 'WARNING') fleet.warning++;
+        else fleet.safe++;
+      }
       setPanel({
         metrics: world.metrics.snapshot(),
         selected,
@@ -151,6 +158,7 @@ export function App() {
           warningTimeMs: world.warningTimeMs,
           edgeStats: world.edgeStats,
         },
+        fleet,
       });
     }, 100);
     return () => window.clearInterval(id);
@@ -248,10 +256,10 @@ export function App() {
   const eventToWorld = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    const origin = roadOrigin(rect.height);
+    const t = viewTransform(rect.width, rect.height);
     return {
-      xM: (e.clientX - rect.left - origin.x) / RENDER.PX_PER_M,
-      yM: (e.clientY - rect.top - origin.y) / RENDER.PX_PER_M,
+      xM: (e.clientX - rect.left - t.ox) / t.scale,
+      yM: (e.clientY - rect.top - t.oy) / t.scale,
     };
   }, []);
 
@@ -308,26 +316,17 @@ export function App() {
     };
   }, []);
 
+  const fleet = panel?.fleet ?? { safe: 0, warning: 0, danger: 0 };
+
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="brand">
-          <span className="brand-dot" />
-          <span className="brand-title">V2V-SIH</span>
-          <span className="brand-sub">Phase 5 · Edge Node</span>
-        </div>
-        <div className="status">
-          <span className={`status-dot ${running ? 'status-run' : 'status-pause'}`} />
-          {running ? 'RUNNING' : 'PAUSED'}
-        </div>
-      </header>
-
-      <Controls
+      <CommandBar
         running={running}
         vehicleCount={vehicleCount}
         seed={seed}
         emergencyActive={panel?.scenario.emergencyActive ?? false}
         selectedId={selectedId}
+        fleet={fleet}
         onToggleRun={toggleRun}
         onReset={reset}
         onTriggerEmergency={toggleEmergency}
@@ -336,7 +335,13 @@ export function App() {
       />
 
       <div className="stage">
-        <div className="canvas-wrap">
+        <div className="viewport">
+          <div className="viewport-tag">
+            <span className="viewport-tag-label">ROAD SENSOR FEED</span>
+            <span className="viewport-tag-hint">
+              click a vehicle to inspect · drag it toward the range edge
+            </span>
+          </div>
           <canvas
             ref={canvasRef}
             className="road-canvas"
@@ -354,11 +359,6 @@ export function App() {
           scenario={panel?.scenario}
         />
       </div>
-
-      <footer className="app-footer">
-        RSU observes (density · congestion) beside the safety loop, never inside it ·
-        every braking decision stays local at the vehicle — no cloud in the safety-critical path.
-      </footer>
     </div>
   );
 }

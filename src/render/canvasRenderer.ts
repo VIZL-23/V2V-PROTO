@@ -1,225 +1,266 @@
 /**
- * Canvas renderer.
+ * Canvas renderer — the road sensor-feed.
  *
- * Rule: this is the ONLY place metres are converted to pixels.
- * The sim knows nothing about pixels; the UI knows nothing about metres.
+ * Rule: this is the ONLY place metres are converted to pixels. The sim knows
+ * nothing about pixels; the UI knows nothing about metres.
+ *
+ * The corridor is scaled to FIT the viewport width (one shared transform drives
+ * both drawing and hit-testing), so the whole 300 m road is always visible and
+ * the demo survives any projector resolution.
+ *
+ * Colour is semantic and non-overlapping: SAFE green / WARNING amber /
+ * DANGER red for risk, one cyan signal for interaction + direct links, violet
+ * for the RSU. Nothing here is decorative.
  */
 
-import { RENDER, ROAD, ROAD_WIDTH_M, VEHICLE } from '../sim/config';
+import { ROAD, ROAD_WIDTH_M, VEHICLE } from '../sim/config';
 import type { World } from '../sim/world';
 import type { Vehicle } from '../sim/vehicle';
 
 const COLORS = {
-  bgAsphalt: '#1a2233',
-  shoulder: '#2a3247',
-  laneDash: '#e6ecf8',
-  centerLine: '#ffb020',
-  vehicleNormal: '#29b6d8',
-  vehicleWarning: '#ffb020',
-  vehicleEmergency: '#ff5b5b',
-  vehicleOutline: '#0b1220',
-  vehicleHeading: '#0b1220',
-  vehicleLabel: '#e6ecf8',
-  hudLabel: '#8ea1c9',
-  rangeRing: '#29b6d8',
-  linkDirect: '#29d391', // heard directly (0 hops)
-  linkRelayed: '#ffb020', // heard via relay (multi-hop)
-  selectHalo: '#ffffff',
-  rsu: '#a78bfa', // roadside unit — a distinct, non-vehicle colour
-  rsuCongested: '#ff5b5b',
+  field: '#080b11',
+  grid: '#10161f',
+  frame: '#1c2430',
+  reg: '#2b3646',
+  asphalt: '#0c111a',
+  asphaltEdge: '#141b26',
+  shoulder: '#0a0e15',
+  laneDash: '#2c3947',
+  rail: '#38485a',
+  text: '#e9edf3',
+  dim: '#8592a3',
+  faint: '#566373',
+  signal: '#35c2e6',
+  safe: '#33c98a',
+  warn: '#f2b23d',
+  danger: '#ff5666',
+  rsu: '#8b80f2',
+  ink: '#05070b',
 } as const;
 
-const m2px = (m: number) => m * RENDER.PX_PER_M;
+const MARGIN_X = 44;
+const MAX_SCALE = 5.4;
 
-export interface DrawOptions {
-  /** Vehicle to highlight, draw a range ring around, and link to neighbours. */
-  selectedId?: string | null;
+export interface ViewTransform {
+  scale: number; // px per metre
+  ox: number; // road origin x (px)
+  oy: number; // road origin y (px)
+  roadW: number;
+  roadH: number;
 }
 
-/** Shared origin math so hit-testing in the UI matches what's drawn. */
-export function roadOrigin(canvasHeight: number): { x: number; y: number } {
-  const roadPxH = m2px(ROAD_WIDTH_M);
-  return { x: 0, y: Math.max(0, (canvasHeight - roadPxH) / 2) };
+/** Fit the full corridor to the viewport width. Shared by draw + hit-testing. */
+export function viewTransform(canvasWidth: number, canvasHeight: number): ViewTransform {
+  const usableW = Math.max(140, canvasWidth - MARGIN_X * 2);
+  const scale = Math.min(MAX_SCALE, usableW / ROAD.LENGTH_M);
+  const roadW = ROAD.LENGTH_M * scale;
+  const roadH = ROAD_WIDTH_M * scale;
+  const ox = (canvasWidth - roadW) / 2;
+  const oy = Math.max(64, (canvasHeight - roadH) / 2);
+  return { scale, ox, oy, roadW, roadH };
+}
+
+export interface DrawOptions {
+  selectedId?: string | null;
 }
 
 export function drawFrame(
   ctx: CanvasRenderingContext2D,
   world: World,
-  canvasWidth: number,
-  canvasHeight: number,
+  w: number,
+  h: number,
   opts: DrawOptions = {}
 ): void {
-  // Canvas coord system: we draw the road horizontally.
-  // World: x is along road (0..LENGTH_M), y is across road (0..ROAD_WIDTH_M).
+  const t = viewTransform(w, h);
+  const X = (m: number) => t.ox + m * t.scale;
+  const Y = (m: number) => t.oy + m * t.scale;
+  const L = (m: number) => m * t.scale;
 
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = COLORS.field;
+  ctx.fillRect(0, 0, w, h);
 
-  // The road is scaled to fit horizontally.
-  // If the road is longer than the canvas allows, PX_PER_M would need tuning.
-  const roadPxW = m2px(ROAD.LENGTH_M);
-  const roadPxH = m2px(ROAD_WIDTH_M);
+  drawInstrumentField(ctx, w, h);
+  drawRoad(ctx, t, X, Y, L);
+  drawRuler(ctx, t, X, L);
 
-  // Centre the road vertically in the canvas.
-  const { x: originX, y: originY } = roadOrigin(canvasHeight);
-
-  drawRoad(ctx, originX, originY, roadPxW, roadPxH);
-
-  // RSU / edge node — the roadside observer, drawn under the vehicles.
-  drawRsu(ctx, world, originX, originY);
-
-  // Channel overlay: range ring + links from the selected vehicle. Drawn under
-  // the vehicles so the cars stay crisp on top.
   const selected = opts.selectedId ? world.findVehicle(opts.selectedId) : undefined;
-  if (selected) {
-    drawChannelOverlay(ctx, world, selected, originX, originY);
-  }
 
-  // Emergency propagation pulse (drawn under the cars).
+  drawRsu(ctx, world, X, Y, L);
+  if (selected) drawChannelOverlay(ctx, world, selected, X, Y, L);
   if (world.emergencyBrakerId && world.emergencyStartMs !== null) {
-    drawEmergencyPulse(ctx, world, originX, originY);
+    drawEmergencyPulse(ctx, world, X, Y, L);
   }
 
-  // Vehicles.
-  for (const v of world.vehicles) {
-    drawVehicle(ctx, v, originX, originY, v === selected);
-  }
+  for (const v of world.vehicles) drawVehicle(ctx, v, X, Y, L, v === selected);
 
-  // HUD text.
-  drawHud(ctx, world, canvasWidth, canvasHeight);
+  drawHud(ctx, world);
 }
 
-/**
- * Expanding "sonar" ring from the emergency braker — a visual for the warning
- * spreading outward from where the braking started. Purely decorative; the
- * real propagation is the red/amber wave in the cars themselves.
- */
-function drawEmergencyPulse(
-  ctx: CanvasRenderingContext2D,
-  world: World,
-  originX: number,
-  originY: number
-): void {
-  const braker = world.findVehicle(world.emergencyBrakerId!);
-  if (!braker || world.emergencyStartMs === null) return;
-
-  const cx = originX + m2px(braker.x);
-  const cy = originY + m2px(braker.y);
-  const elapsed = world.simClockMs - world.emergencyStartMs;
-  const period = 1000; // ms per pulse
-  const maxR = m2px(140);
-
+/* ---- instrument field: faint grid + registration marks ------------------ */
+function drawInstrumentField(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.save();
-  for (let k = 0; k < 2; k++) {
-    const phase = (((elapsed - k * (period / 2)) % period) + period) % period / period;
-    const r = phase * maxR;
-    ctx.globalAlpha = (1 - phase) * 0.35;
-    ctx.strokeStyle = COLORS.vehicleEmergency;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.stroke();
+  ctx.strokeStyle = COLORS.grid;
+  ctx.lineWidth = 1;
+  const step = 40;
+  ctx.beginPath();
+  for (let x = (w % step) / 2; x < w; x += step) {
+    ctx.moveTo(Math.round(x) + 0.5, 0);
+    ctx.lineTo(Math.round(x) + 0.5, h);
   }
+  for (let y = (h % step) / 2; y < h; y += step) {
+    ctx.moveTo(0, Math.round(y) + 0.5);
+    ctx.lineTo(w, Math.round(y) + 0.5);
+  }
+  ctx.stroke();
+
+  // Corner registration marks.
+  ctx.strokeStyle = COLORS.reg;
+  ctx.lineWidth = 1.5;
+  const m = 12;
+  const len = 12;
+  const corners: Array<[number, number, number, number]> = [
+    [m, m, 1, 1],
+    [w - m, m, -1, 1],
+    [m, h - m, 1, -1],
+    [w - m, h - m, -1, -1],
+  ];
+  ctx.beginPath();
+  for (const [cx, cy, sx, sy] of corners) {
+    ctx.moveTo(cx, cy + sy * len);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx + sx * len, cy);
+  }
+  ctx.stroke();
   ctx.restore();
 }
 
-/**
- * Range ring around the selected vehicle plus a link to every car in its LOCAL
- * WORLD MODEL — what it has actually heard, coloured by how it heard it:
- * green = directly, amber = via a relay. Amber links reaching cars OUTSIDE the
- * range ring are the visible proof of multi-hop propagation: the vehicle knows
- * about traffic it can't reach on its own.
- */
-function drawChannelOverlay(
+/* ---- the road ----------------------------------------------------------- */
+function drawRoad(
   ctx: CanvasRenderingContext2D,
-  world: World,
-  sel: Vehicle,
-  originX: number,
-  originY: number
+  t: ViewTransform,
+  X: (m: number) => number,
+  Y: (m: number) => number,
+  L: (m: number) => number
 ): void {
-  const cx = originX + m2px(sel.x);
-  const cy = originY + m2px(sel.y);
-  const rangePx = m2px(world.channel.cfg.rangeM);
+  const x = t.ox;
+  const y = t.oy;
+  const w = t.roadW;
+  const h = t.roadH;
 
-  ctx.save();
+  ctx.fillStyle = COLORS.asphalt;
+  ctx.fillRect(x, y, w, h);
 
-  // Range ring + faint disc.
-  ctx.strokeStyle = COLORS.rangeRing;
-  ctx.globalAlpha = 0.35;
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([5, 5]);
+  const shoulderPx = L(ROAD.SHOULDER_M);
+  ctx.fillStyle = COLORS.shoulder;
+  ctx.fillRect(x, y, w, shoulderPx);
+  ctx.fillRect(x, y + h - shoulderPx, w, shoulderPx);
+
+  // Lane dashes.
+  const laneW = L(ROAD.LANE_WIDTH_M);
+  ctx.strokeStyle = COLORS.laneDash;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([L(3), L(4)]);
   ctx.beginPath();
-  ctx.arc(cx, cy, rangePx, 0, Math.PI * 2);
+  for (let i = 1; i < ROAD.LANES; i++) {
+    const ly = Math.round(y + shoulderPx + i * laneW) + 0.5;
+    ctx.moveTo(x, ly);
+    ctx.lineTo(x + w, ly);
+  }
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.globalAlpha = 0.06;
-  ctx.fillStyle = COLORS.rangeRing;
-  ctx.fill();
 
-  // Links to everything in the world model, drawn to the position THIS vehicle
-  // believes each car is at (i.e. the last message it heard).
-  ctx.lineWidth = 1.25;
-  for (const known of sel.worldModel.values()) {
-    const direct = known.hops === 0;
-    ctx.strokeStyle = direct ? COLORS.linkDirect : COLORS.linkRelayed;
-    ctx.globalAlpha = direct ? 0.5 : 0.75;
-    const kx = originX + m2px(known.pos.x);
-    const ky = originY + m2px(known.pos.y);
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(kx, ky);
-    ctx.stroke();
-    // Small ring on relayed peers so multi-hop knowledge is obvious.
-    if (!direct) {
-      ctx.beginPath();
-      ctx.arc(kx, ky, 6, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
+  // Rails — bright hairlines at the road edges (the active track).
+  ctx.strokeStyle = COLORS.rail;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, Math.round(y + shoulderPx) + 0.5);
+  ctx.lineTo(x + w, Math.round(y + shoulderPx) + 0.5);
+  ctx.moveTo(x, Math.round(y + h - shoulderPx) - 0.5);
+  ctx.lineTo(x + w, Math.round(y + h - shoulderPx) - 0.5);
+  ctx.stroke();
+
+  // Faint frame around the whole corridor.
+  ctx.strokeStyle = COLORS.frame;
+  ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, w, h);
+
+  void X;
+  void Y;
 }
 
-/**
- * The roadside unit: a mast beside the road with a faint coverage wedge and a
- * live badge (density / congestion). It is visually distinct from vehicles
- * because it is NOT one — it observes, it never brakes anything.
- */
+/* ---- metre ruler under the road ----------------------------------------- */
+function drawRuler(
+  ctx: CanvasRenderingContext2D,
+  t: ViewTransform,
+  X: (m: number) => number,
+  L: (m: number) => number
+): void {
+  const baseY = t.oy + t.roadH + 10;
+  ctx.save();
+  ctx.strokeStyle = COLORS.frame;
+  ctx.fillStyle = COLORS.faint;
+  ctx.lineWidth = 1;
+  ctx.font = "10px 'IBM Plex Mono', monospace";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  ctx.beginPath();
+  ctx.moveTo(X(0), baseY + 0.5);
+  ctx.lineTo(X(ROAD.LENGTH_M), baseY + 0.5);
+  ctx.stroke();
+
+  ctx.beginPath();
+  for (let m = 0; m <= ROAD.LENGTH_M; m += 25) {
+    const major = m % 50 === 0;
+    const px = Math.round(X(m)) + 0.5;
+    ctx.moveTo(px, baseY);
+    ctx.lineTo(px, baseY + (major ? 6 : 3));
+    if (major) ctx.fillText(String(m), X(m), baseY + 9);
+  }
+  ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COLORS.dim;
+  ctx.fillText('METRES', X(ROAD.LENGTH_M) + 8, baseY + 9);
+  ctx.restore();
+  void L;
+}
+
+/* ---- RSU ---------------------------------------------------------------- */
 function drawRsu(
   ctx: CanvasRenderingContext2D,
   world: World,
-  originX: number,
-  originY: number
+  X: (m: number) => number,
+  Y: (m: number) => number,
+  L: (m: number) => number
 ): void {
   const rsu = world.rsu;
-  const cx = originX + m2px(rsu.x);
-  const roadPxH = m2px(ROAD_WIDTH_M);
-  const topY = originY;
+  const cx = X(rsu.x);
+  const roadTop = Y(0);
   const congested = world.edgeStats.congestion;
-  const color = congested ? COLORS.rsuCongested : COLORS.rsu;
+  const color = congested ? COLORS.danger : COLORS.rsu;
 
   ctx.save();
-
-  // Coverage band across the road within range.
-  const cov = m2px(rsu.rangeM);
-  ctx.globalAlpha = 0.05;
+  // Coverage band.
+  const cov = L(rsu.rangeM);
   ctx.fillStyle = color;
-  ctx.fillRect(cx - cov, topY, cov * 2, roadPxH);
-
-  // Mast just above the road.
-  const mastY = topY - 14;
+  ctx.globalAlpha = 0.04;
+  ctx.fillRect(cx - cov, roadTop, cov * 2, L(ROAD_WIDTH_M));
   ctx.globalAlpha = 1;
+
+  // Mast above the road.
+  const mastY = roadTop - 18;
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(cx, topY);
+  ctx.moveTo(cx, roadTop);
   ctx.lineTo(cx, mastY);
   ctx.stroke();
-
-  // Signal arcs.
   for (let i = 1; i <= 2; i++) {
-    ctx.globalAlpha = 0.5 / i;
+    ctx.globalAlpha = 0.55 / i;
     ctx.beginPath();
-    ctx.arc(cx, mastY, 4 + i * 4, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.arc(cx, mastY, 3 + i * 4, Math.PI * 1.15, Math.PI * 1.85);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
@@ -227,163 +268,192 @@ function drawRsu(
   ctx.arc(cx, mastY, 2.5, 0, Math.PI * 2);
   ctx.fill();
 
-  // Label.
-  ctx.fillStyle = color;
-  ctx.font = 'bold 10px system-ui, sans-serif';
+  ctx.font = "600 10px 'IBM Plex Mono', monospace";
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(congested ? 'RSU · CONGESTION' : 'RSU', cx, mastY - 12);
-
+  ctx.fillText(congested ? 'RSU · CONGESTION' : 'RSU', cx, mastY - 11);
   ctx.restore();
 }
 
-function drawRoad(
+/* ---- channel overlay for the selected vehicle --------------------------- */
+function drawChannelOverlay(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number
+  world: World,
+  sel: Vehicle,
+  X: (m: number) => number,
+  Y: (m: number) => number,
+  L: (m: number) => number
 ): void {
-  // Full road surface.
-  ctx.fillStyle = COLORS.bgAsphalt;
-  ctx.fillRect(x, y, w, h);
+  const cx = X(sel.x);
+  const cy = Y(sel.y);
 
-  // Shoulders (top and bottom).
-  const shoulderPx = m2px(ROAD.SHOULDER_M);
-  ctx.fillStyle = COLORS.shoulder;
-  ctx.fillRect(x, y, w, shoulderPx);
-  ctx.fillRect(x, y + h - shoulderPx, w, shoulderPx);
+  ctx.save();
+  // Range ring.
+  ctx.strokeStyle = COLORS.signal;
+  ctx.globalAlpha = 0.4;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.arc(cx, cy, L(world.channel.cfg.rangeM), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
 
-  // Lane markings.
-  // Between lanes: dashed white.
-  const laneW = m2px(ROAD.LANE_WIDTH_M);
-  ctx.strokeStyle = COLORS.laneDash;
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([16, 14]);
-  for (let i = 1; i < ROAD.LANES; i++) {
-    const ly = y + shoulderPx + i * laneW;
+  // Links to the world model — solid = direct, dashed = relayed.
+  ctx.lineWidth = 1.25;
+  for (const known of sel.worldModel.values()) {
+    const direct = known.hops === 0;
+    const kx = X(known.pos.x);
+    const ky = Y(known.pos.y);
+    ctx.strokeStyle = COLORS.signal;
+    ctx.globalAlpha = direct ? 0.55 : 0.4;
+    ctx.setLineDash(direct ? [] : [3, 3]);
     ctx.beginPath();
-    ctx.moveTo(x, ly);
-    ctx.lineTo(x + w, ly);
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(kx, ky);
     ctx.stroke();
+    if (!direct) {
+      ctx.beginPath();
+      ctx.arc(kx, ky, 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
   ctx.setLineDash([]);
+  ctx.restore();
+}
 
-  // Solid edge lines just inside the shoulders.
-  ctx.strokeStyle = COLORS.laneDash;
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.4;
-  ctx.beginPath();
-  ctx.moveTo(x, y + shoulderPx);
-  ctx.lineTo(x + w, y + shoulderPx);
-  ctx.moveTo(x, y + h - shoulderPx);
-  ctx.lineTo(x + w, y + h - shoulderPx);
-  ctx.stroke();
-  ctx.globalAlpha = 1;
+/* ---- emergency propagation pulse ---------------------------------------- */
+function drawEmergencyPulse(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  X: (m: number) => number,
+  Y: (m: number) => number,
+  L: (m: number) => number
+): void {
+  const braker = world.findVehicle(world.emergencyBrakerId!);
+  if (!braker || world.emergencyStartMs === null) return;
+  const cx = X(braker.x);
+  const cy = Y(braker.y);
+  const elapsed = world.simClockMs - world.emergencyStartMs;
+  const period = 1000;
+  const maxR = L(120);
+
+  ctx.save();
+  ctx.strokeStyle = COLORS.danger;
+  ctx.lineWidth = 1.5;
+  for (let k = 0; k < 2; k++) {
+    const phase = ((((elapsed - k * (period / 2)) % period) + period) % period) / period;
+    ctx.globalAlpha = (1 - phase) * 0.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, phase * maxR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ---- a vehicle ---------------------------------------------------------- */
+function riskColor(v: Vehicle): string {
+  return v.status === 'EMERGENCY' ? COLORS.danger : v.status === 'WARNING' ? COLORS.warn : COLORS.safe;
 }
 
 function drawVehicle(
   ctx: CanvasRenderingContext2D,
   v: Vehicle,
-  originX: number,
-  originY: number,
+  X: (m: number) => number,
+  Y: (m: number) => number,
+  L: (m: number) => number,
   selected: boolean
 ): void {
-  const cx = originX + m2px(v.x);
-  const cy = originY + m2px(v.y);
-  const w = m2px(VEHICLE.LENGTH_M);
-  const h = m2px(VEHICLE.WIDTH_M);
+  const cx = X(v.x);
+  const cy = Y(v.y);
+  const w = L(VEHICLE.LENGTH_M);
+  const h = Math.max(6, L(VEHICLE.WIDTH_M));
+  const fill = riskColor(v);
 
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(v.heading);
 
-  // Selection halo.
   if (selected) {
-    ctx.save();
-    ctx.strokeStyle = COLORS.selectHalo;
-    ctx.globalAlpha = 0.9;
-    ctx.lineWidth = 2;
-    roundRect(ctx, -w / 2 - 3, -h / 2 - 3, w + 6, h + 6, 4);
-    ctx.stroke();
-    ctx.restore();
+    ctx.strokeStyle = COLORS.signal;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6);
   }
 
-  // Body — rounded rectangle.
-  const fill =
-    v.status === 'EMERGENCY'
-      ? COLORS.vehicleEmergency
-      : v.status === 'WARNING'
-      ? COLORS.vehicleWarning
-      : COLORS.vehicleNormal;
-
   ctx.fillStyle = fill;
-  ctx.strokeStyle = COLORS.vehicleOutline;
+  ctx.strokeStyle = COLORS.ink;
   ctx.lineWidth = 1;
-  roundRect(ctx, -w / 2, -h / 2, w, h, 2.5);
-  ctx.fill();
-  ctx.stroke();
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+  ctx.strokeRect(-w / 2, -h / 2, w, h);
 
-  // Heading indicator — a small dark triangle at the front.
-  const fx = w / 2 - 2;
-  ctx.fillStyle = COLORS.vehicleHeading;
+  // Heading nib.
+  ctx.fillStyle = COLORS.ink;
   ctx.beginPath();
-  ctx.moveTo(fx, 0);
-  ctx.lineTo(fx - 5, -h / 2 + 1.5);
-  ctx.lineTo(fx - 5, h / 2 - 1.5);
+  ctx.moveTo(w / 2 - 1, 0);
+  ctx.lineTo(w / 2 - Math.min(5, w * 0.3), -h / 2 + 1.5);
+  ctx.lineTo(w / 2 - Math.min(5, w * 0.3), h / 2 - 1.5);
   ctx.closePath();
   ctx.fill();
-
   ctx.restore();
 
-  // Vehicle ID label above the car (in screen space, not rotated).
-  ctx.fillStyle = COLORS.vehicleLabel;
-  ctx.font = '10px system-ui, sans-serif';
+  // Label above.
+  ctx.fillStyle = selected ? COLORS.signal : COLORS.dim;
+  ctx.font = "500 10px 'IBM Plex Mono', monospace";
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText(v.id, cx, cy - h / 2 - 4);
 
-  // TTC readout below at-risk cars — the risk engine made visible.
+  // TTC readout below at-risk cars.
   if (v.status !== 'NORMAL' && v.ttc !== null && Number.isFinite(v.ttc)) {
-    ctx.fillStyle = v.status === 'EMERGENCY' ? COLORS.vehicleEmergency : COLORS.vehicleWarning;
-    ctx.font = 'bold 9px system-ui, sans-serif';
+    ctx.fillStyle = fill;
+    ctx.font = "600 9px 'IBM Plex Mono', monospace";
     ctx.textBaseline = 'top';
-    ctx.fillText(`TTC ${v.ttc.toFixed(1)}s`, cx, cy + h / 2 + 3);
+    ctx.fillText(`${v.ttc.toFixed(1)}s`, cx, cy + h / 2 + 4);
   }
 }
 
-function drawHud(
-  ctx: CanvasRenderingContext2D,
-  world: World,
-  _canvasWidth: number,
-  canvasHeight: number
-): void {
-  ctx.fillStyle = COLORS.hudLabel;
-  ctx.font = '11px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'bottom';
-  const t = (world.simClockMs / 1000).toFixed(2);
-  ctx.fillText(
-    `t=${t}s   tick=${world.tickCount}   vehicles=${world.vehicles.length}`,
-    12,
-    canvasHeight - 10
-  );
+/* ---- instrument HUD (top-left) ------------------------------------------ */
+function worstStatus(world: World): 'NORMAL' | 'WARNING' | 'EMERGENCY' {
+  let worst: 'NORMAL' | 'WARNING' | 'EMERGENCY' = 'NORMAL';
+  for (const v of world.vehicles) {
+    if (v.status === 'EMERGENCY') return 'EMERGENCY';
+    if (v.status === 'WARNING') worst = 'WARNING';
+  }
+  return worst;
 }
 
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-): void {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
+function drawHud(ctx: CanvasRenderingContext2D, world: World): void {
+  const pad = 14;
+  const x = pad + 8;
+  let y = pad + 8;
+  const line = 15;
+
+  const status = worstStatus(world);
+  const statusColor =
+    status === 'EMERGENCY' ? COLORS.danger : status === 'WARNING' ? COLORS.warn : COLORS.safe;
+  const statusLabel = status === 'EMERGENCY' ? 'DANGER' : status === 'WARNING' ? 'WARNING' : 'NOMINAL';
+
+  ctx.save();
+  ctx.textBaseline = 'alphabetic';
+
+  const rows: Array<[string, string, string]> = [
+    ['CLK', `${(world.simClockMs / 1000).toFixed(2)}s`, COLORS.text],
+    ['TICK', String(world.tickCount), COLORS.text],
+    ['VEH', String(world.vehicles.length), COLORS.text],
+    ['STATUS', statusLabel, statusColor],
+  ];
+
+  ctx.font = "500 10px 'IBM Plex Mono', monospace";
+  for (const [label, value, color] of rows) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COLORS.faint;
+    ctx.fillText(label, x, y);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = color;
+    ctx.font = "600 11px 'IBM Plex Mono', monospace";
+    ctx.fillText(value, x + 42, y);
+    ctx.font = "500 10px 'IBM Plex Mono', monospace";
+    y += line;
+  }
+  ctx.restore();
 }

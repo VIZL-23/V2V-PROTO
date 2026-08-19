@@ -3,6 +3,7 @@ dist
 dist-ssr
 *.local
 .claude
+.impeccable/
 
 # Editor
 .vscode/*
